@@ -1,4 +1,4 @@
-#!/bash/bin
+#!/bin/bash
 go test
 
 #delete tmp file

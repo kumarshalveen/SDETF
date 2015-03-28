@@ -2,6 +2,7 @@ package mapreduce
 
 import "fmt"
 import "net/rpc"
+import "math/rand"	//Lab1_Part3
 
 const (
 	Map    = "Map"
@@ -63,6 +64,12 @@ func call(srv string, rpcname string,
 		return false
 	}
 	defer c.Close()
+
+	// Lab1_Part3
+	// simulate the failed cases
+	if (7 < rand.Intn(10)) {
+		return false
+	}
 
 	err := c.Call(rpcname, args, reply)
 	if err == nil {
