@@ -28,8 +28,9 @@ func (mr *MapReduce) KillWorkers() *list.List {
 	return l
 }
 
-//schedule jobs to workers
-//Lab1_Part2
+// Schedule jobs to workers
+// Lab1_Part2
+// Lab1_Part3
 func (mr *MapReduce) JobScheduler(id int, operation JobType) {
 	for {
 		//set variables
@@ -55,6 +56,7 @@ func (mr *MapReduce) JobScheduler(id int, operation JobType) {
 				ok = call(worker, "Worker.DoJob", args, &reply)
 		}
 
+		//handle a successful one
 		if (ok) {
 			switch operation {
 			case Map :
@@ -64,13 +66,14 @@ func (mr *MapReduce) JobScheduler(id int, operation JobType) {
 			}
 			mr.idleChannel <- worker
 			return
-		}
+		} 
 	}
 }
 
 func (mr *MapReduce) RunMaster() *list.List {
 	// Your code here
 	// Lab1_Part2
+	// Lab1_Part3
 	//fmt.Println("nmap", mr.nMap,"    nReduce", mr.nReduce)
 	for i := 0; i < mr.nMap; i++ {
 		go mr.JobScheduler(i, Map)

@@ -2,7 +2,6 @@ package mapreduce
 
 import "fmt"
 import "net/rpc"
-import "math/rand"	//Lab1_Part3
 
 const (
 	Map    = "Map"

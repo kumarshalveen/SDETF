@@ -65,6 +65,7 @@ type MapReduce struct {
 
 	// add any additional state here
 	// Lab1_Part2
+	// Lab1_Part3
 	idleChannel     chan string
 	mapChannel      chan int
 	reduceChannel   chan int
