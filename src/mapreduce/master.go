@@ -28,7 +28,62 @@ func (mr *MapReduce) KillWorkers() *list.List {
 	return l
 }
 
+//schedule jobs to workers
+func (mr *MapReduce) JobScheduler(id int, operation JobType) {
+	for {
+		//set variables
+		var worker string
+		var args DoJobArgs
+		var reply DoJobReply
+		args.File = mr.file
+		args.Operation = operation
+		args.JobNumber = id
+		switch operation {
+		case Map :
+			args.NumOtherPhase = mr.nReduce
+		case Reduce:
+			args.NumOtherPhase = mr.nMap
+		}
+
+		//send a job
+		ok := false
+		select {
+			case worker = <- mr.idleChannel :
+				ok = call(worker, "Worker.DoJob", args, &reply)
+			case worker = <- mr.registerChannel :
+				ok = call(worker, "Worker.DoJob", args, &reply)
+		}
+
+		if (ok) {
+			switch operation {
+			case Map :
+				mr.mapChannel <- id
+			case Reduce :
+				mr.reduceChannel <- id
+			}
+			mr.idleChannel <- worker
+			return
+		}
+	}
+}
+
 func (mr *MapReduce) RunMaster() *list.List {
 	// Your code here
+	//fmt.Println("nmap", mr.nMap,"    nReduce", mr.nReduce)
+	for i := 0; i < mr.nMap; i++ {
+		go mr.JobScheduler(i, Map)
+	}
+	for i := 0; i < mr.nMap; i++ {
+		<- mr.mapChannel
+	}
+	//fmt.Println("Map done!")
+	for i := 0; i < mr.nReduce; i++ {
+		go mr.JobScheduler(i, Reduce)
+	}
+	for i := 0; i < mr.nReduce; i++ {
+		<- mr.reduceChannel
+	}
+
+	//fmt.Println("Reduce done")
 	return mr.KillWorkers()
 }
