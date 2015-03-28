@@ -29,6 +29,7 @@ func (mr *MapReduce) KillWorkers() *list.List {
 }
 
 //schedule jobs to workers
+//Lab1_Part2
 func (mr *MapReduce) JobScheduler(id int, operation JobType) {
 	for {
 		//set variables
@@ -69,6 +70,7 @@ func (mr *MapReduce) JobScheduler(id int, operation JobType) {
 
 func (mr *MapReduce) RunMaster() *list.List {
 	// Your code here
+	// Lab1_Part2
 	//fmt.Println("nmap", mr.nMap,"    nReduce", mr.nReduce)
 	for i := 0; i < mr.nMap; i++ {
 		go mr.JobScheduler(i, Map)

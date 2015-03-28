@@ -64,6 +64,7 @@ type MapReduce struct {
 	Workers map[string]*WorkerInfo
 
 	// add any additional state here
+	// Lab1_Part2
 	idleChannel     chan string
 	mapChannel      chan int
 	reduceChannel   chan int
