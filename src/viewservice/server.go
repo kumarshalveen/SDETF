@@ -18,6 +18,10 @@ type ViewServer struct {
 
 
 	// Your declarations here.
+	//Lab2_PartA
+	View           View
+	servers        map[string]int
+	server_idle    map[string]int
 }
 
 //
@@ -26,6 +30,46 @@ type ViewServer struct {
 func (vs *ViewServer) Ping(args *PingArgs, reply *PingReply) error {
 
 	// Your code here.
+	//Lab2_PartA
+	vs.servers[args.Me] = DeadPings
+	fmt.Println(args)
+	if (args.Viewnum == 0 && vs.View.Viewnum == 0 && 
+		vs.View.Primary == "" && vs.View.Backup == "") {
+		//Test: First primary
+		vs.View.Viewnum += 1
+		vs.View.Primary = args.Me
+		vs.server_idle[args.Me] = 0
+		reply.View = vs.View
+		//fmt.Println(reply)
+	} else if (args.Viewnum == 0 && vs.View.Viewnum > 0 &&
+		vs.View.Primary == args.Me) {
+		//Test: Restarted primary treated as dead
+		//Test: Dead backup is removed from view
+		vs.View.Primary = ""
+		vs.make_backup_to_primary()
+	} else if (vs.View.Primary != "" && vs.View.Backup != "" &&
+		vs.View.Primary != args.Me && vs.View.Backup != args.Me ) {
+		//Test: Idle third server becomes backup if primary fails
+		vs.server_idle[args.Me] = 1
+	} else if (args.Viewnum == 0 && vs.View.Primary != "" &&
+	 vs.View.Primary != args.Me && vs.View.Backup == "") {
+	 	//Test: First backup
+		vs.View.Viewnum += 1
+		vs.View.Backup = args.Me
+		vs.server_idle[args.Me] = 0
+		reply.View = vs.View
+	} else if (vs.View.Primary != "" && vs.View.Primary != args.Me &&
+	 vs.View.Backup == "") {
+	 	//Test: First backup
+		//fmt.Println(args)
+		vs.View.Viewnum += 1
+		vs.View.Backup = args.Me
+		vs.server_idle[args.Me] = 0
+		reply.View = vs.View
+	} else {
+		reply.View = vs.View
+		//fmt.Println(reply)
+	}
 
 	return nil
 }
@@ -36,10 +80,30 @@ func (vs *ViewServer) Ping(args *PingArgs, reply *PingReply) error {
 func (vs *ViewServer) Get(args *GetArgs, reply *GetReply) error {
 
 	// Your code here.
+	//Lab2_PartA
+	reply.View = vs.View
 
 	return nil
 }
 
+
+//Lab2_PartA
+//Test: Backup takes over if primary fails
+//Test: Restarted server becomes backup
+//Test: Idle third server becomes backup if primary fails
+//Test: Restarted primary treated as dead
+func (vs *ViewServer) make_backup_to_primary () {
+	time.Sleep(time.Millisecond*60)
+	vs.View.Viewnum += 1
+	vs.View.Primary = vs.View.Backup
+	vs.View.Backup = ""
+	for k, v := range vs.server_idle {
+		if (v == 1) {
+			vs.View.Backup = k
+			vs.server_idle[k] = 0
+		}
+	}
+}
 
 //
 // tick() is called once per PingInterval; it should notice
@@ -49,6 +113,15 @@ func (vs *ViewServer) Get(args *GetArgs, reply *GetReply) error {
 func (vs *ViewServer) tick() {
 
 	// Your code here.
+	//Lab2_PartA
+	for k, v := range vs.servers {
+		vs.servers[k] = v - 1
+		if (vs.servers[k] == 0) {
+			if (k == vs.View.Primary) {
+				vs.make_backup_to_primary()
+			}
+		}
+	}
 }
 
 //
@@ -77,6 +150,10 @@ func StartServer(me string) *ViewServer {
 	vs := new(ViewServer)
 	vs.me = me
 	// Your vs.* initializations here.
+	//Lab2_PartA
+	vs.View = View{0, "", ""}
+	vs.servers = make(map[string]int)
+	vs.server_idle = make(map[string]int)
 
 	// tell net/rpc about our RPC server and handlers.
 	rpcs := rpc.NewServer()
