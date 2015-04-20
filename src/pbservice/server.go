@@ -22,22 +22,101 @@ type PBServer struct {
 	me         string
 	vs         *viewservice.Clerk
 	// Your declarations here.
+	//Lab2_PartB
+	database   map[string]string
+	View       viewservice.View
+	Idmap      map[string]bool
 }
 
 
 func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 
 	// Your code here.
-
+	//Lab2_PartB
+	//is primary
+	if (pb.View.Primary == pb.me) {
+		key := args.Key
+		value, ok := pb.database[key]
+		reply.Value = value
+		if (ok) {
+			reply.Err = OK
+		} else {
+			reply.Err = ErrNoKey
+		}
+	} else {
+		reply.Err = ErrWrongServer
+	}
 	return nil
 }
 
+//Lab2_PartB
+func (pb *PBServer) CopyToBackup(args *CopyArgs, reply *CopyReply) error {
+	if (args.Backup == pb.me && pb.View.Backup == pb.me) {
+		pb.database = args.Database
+		reply.Err = OK
+	} else {
+		reply.Err = ErrWrongServer
+		//return ErrWrongServer
+	}
+	return nil
+}
+
+func (pb *PBServer) ForwardToBackup(args *PutAppendArgs, reply *PutAppendReply) error {
+	key := args.Key
+	if (pb.View.Backup == pb.me) {
+		if (args.Op == "Put") {
+			pb.database[key] = args.Value
+		} else if (args.Op == "Append") {
+			pb.database[key] += args.Value
+		}
+		reply.Err = OK
+	}
+	return nil
+}
 
 func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 
 	// Your code here.
+	//Lab2_PartB
+	//fmt.Println("args:", args, "reply:", reply)
+	
+	//is primary
+	pb.mu.Lock()
+	if (pb.View.Primary == pb.me) {
+		//recv
+		key := args.Key
+		if (pb.database[args.Me] == args.Id) {
+			//already in
+			pb.mu.Unlock()
+			return nil;
+		}
+		if (args.Op == "Put") {
+			pb.database[key] = args.Value
+		} else if (args.Op == "Append") {
+			pb.database[key] += args.Value
+		}
+		reply.Err = OK
+		pb.database[args.Me] = args.Id
+		//copy to backup
+		if (pb.View.Backup != "") {
+			//has a backup
+			//cpargs := &CopyArgs{}
+			//cpargs.Backup = pb.View.Backup
+			//cpargs.Database = pb.database
+			//var cpreply CopyReply
+			//ok := call(pb.View.Backup, "PBServer.CopyToBackup", cpargs, &cpreply);
+			//if (ok == false) {
+			//	fmt.Println("Copy to backup error!")
+			//}
+			ok := call(pb.View.Backup, "PBServer.ForwardToBackup", args, &reply)
+			if (ok == false) {
+				fmt.Println("Forward to backup error!")
+			}
+			
+		}
+	}
 
-
+	pb.mu.Unlock()
 	return nil
 }
 
@@ -51,6 +130,16 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 func (pb *PBServer) tick() {
 
 	// Your code here.
+	//Lab2_PartB
+	if pb.isdead() {
+		fmt.Println("DEEE")
+		return
+	}
+	view, ok := pb.vs.Ping(pb.View.Viewnum)
+	if (ok != nil) {
+		fmt.Println("ping err")
+	}
+	pb.View = view
 }
 
 // tell the server to shut itself down.
@@ -83,6 +172,10 @@ func StartServer(vshost string, me string) *PBServer {
 	pb.me = me
 	pb.vs = viewservice.MakeClerk(me, vshost)
 	// Your pb.* initializations here.
+	//Lab2_PartB
+	pb.database = make(map[string]string)
+	pb.View = viewservice.View{0,"",""}
+	pb.Idmap = make(map[string]bool)
 
 	rpcs := rpc.NewServer()
 	rpcs.Register(pb)

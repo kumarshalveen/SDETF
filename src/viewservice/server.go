@@ -150,6 +150,8 @@ func (vs *ViewServer) tick() {
 			} else if (k == vs.View.Backup) {
 				vs.remove_dead_backup()
 			}
+			//Lab2_PartB
+			vs.View = vs.newView
 		}
 	}
 }

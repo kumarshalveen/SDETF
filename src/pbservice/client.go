@@ -7,10 +7,19 @@ import "fmt"
 import "crypto/rand"
 import "math/big"
 
+//Lab2_PartB
+import "time"
+import "strconv"
 
 type Clerk struct {
 	vs *viewservice.Clerk
 	// Your declarations here
+	//Lab2_PartB
+	View     viewservice.View
+	//Test: at-most-once Append
+	//cache    map[string]string
+	sent     bool
+	me       string
 }
 
 // this may come in handy.
@@ -21,11 +30,21 @@ func nrand() int64 {
 	return x
 }
 
+//Lab2_PartB
+func (ck *Clerk) update_view() {
+	view, _ := ck.vs.Ping(ck.View.Viewnum)
+	ck.View = view
+}
+
 func MakeClerk(vshost string, me string) *Clerk {
 	ck := new(Clerk)
 	ck.vs = viewservice.MakeClerk(me, vshost)
 	// Your ck.* initializations here
-
+	//Lab2_PartB
+	ck.View = viewservice.View{0, "", ""}
+	//ck.cache = make(map[string]string)
+	ck.me = strconv.FormatInt(nrand(), 10)
+	
 	return ck
 }
 
@@ -74,8 +93,28 @@ func call(srv string, rpcname string,
 func (ck *Clerk) Get(key string) string {
 
 	// Your code here.
+	//Lab2_PartB
+	//prepare arguments
+	if (ck.View.Viewnum == 0) {
+		ck.update_view()
+	}
+	args := &GetArgs{}
+	args.Key = key
+	var reply GetReply
+	//send a RPC
+	for i := 0; ; i++ {
+		ok := call(ck.View.Primary, "PBServer.Get", args, &reply)
+		if (reply.Err == OK) {
+			break;
+		}
+		if (ok == false) {
+			//fmt.Println("Get error")
+		}
+		time.Sleep(viewservice.PingInterval)
+		ck.update_view()
+	}
 
-	return "???"
+	return reply.Value
 }
 
 //
@@ -84,6 +123,42 @@ func (ck *Clerk) Get(key string) string {
 func (ck *Clerk) PutAppend(key string, value string, op string) {
 
 	// Your code here.
+	//Lab2_PartB
+	//prepare arguments
+	if (ck.View.Viewnum == 0) {
+	//Test: Count RPCs to viewserver
+		ck.update_view()
+	}
+	//if (op == "Append") {//Test: at-most-once Append
+	//	ck.cache[key] += value
+	//} else {
+	//	ck.cache[key] = value
+	//}
+
+	args := &PutAppendArgs{}
+	args.Key = key
+	args.Value = value//ck.cache[key]
+	args.Op = op
+	//Test: at-most-once Append
+	args.Me = ck.me 
+	args.Id = strconv.FormatInt(nrand(), 10)
+	var reply PutAppendReply
+	//send a RPC
+	for i := 0; ; i++ {
+		ok := call(ck.View.Primary, "PBServer.PutAppend", args, &reply)
+		if (reply.Err == OK) {
+			//ck.sent = true
+			//ck.cache[key] = ""
+			break;
+		}
+		if (ok == false) {
+			fmt.Println("Put or Append error!")
+		}	
+		time.Sleep(viewservice.PingInterval)
+		//Test: Count RPCs to viewserver
+		ck.update_view()
+	}
+	
 }
 
 //
