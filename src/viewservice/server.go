@@ -20,8 +20,10 @@ type ViewServer struct {
 	// Your declarations here.
 	//Lab2_PartA
 	View           View
+	newView        View
 	servers        map[string]int
 	server_idle    map[string]int
+	server_ack     string
 }
 
 //
@@ -31,46 +33,61 @@ func (vs *ViewServer) Ping(args *PingArgs, reply *PingReply) error {
 
 	// Your code here.
 	//Lab2_PartA
+	//fmt.Println(args)
 	vs.servers[args.Me] = DeadPings
-	fmt.Println(args)
-	if (args.Viewnum == 0 && vs.View.Viewnum == 0 && 
-		vs.View.Primary == "" && vs.View.Backup == "") {
+	if (args.Viewnum == 0 && vs.newView.Viewnum == 0 && 
+		vs.newView.Primary == "" && vs.newView.Backup == "") {
 		//Test: First primary
-		vs.View.Viewnum += 1
-		vs.View.Primary = args.Me
+		vs.mu.Lock()
+		vs.newView.Viewnum += 1
+		vs.newView.Primary = args.Me
 		vs.server_idle[args.Me] = 0
-		reply.View = vs.View
+		vs.mu.Unlock()		
 		//fmt.Println(reply)
-	} else if (args.Viewnum == 0 && vs.View.Viewnum > 0 &&
-		vs.View.Primary == args.Me) {
+	} else if (args.Viewnum == 0 && vs.newView.Viewnum > 0 &&
+		vs.newView.Primary == args.Me) {
 		//Test: Restarted primary treated as dead
 		//Test: Dead backup is removed from view
-		vs.View.Primary = ""
+		//vs.View.Primary = ""
 		vs.make_backup_to_primary()
-	} else if (vs.View.Primary != "" && vs.View.Backup != "" &&
-		vs.View.Primary != args.Me && vs.View.Backup != args.Me ) {
+		//reply.View = vs.View
+	} else if (vs.newView.Primary != "" && vs.newView.Backup != "" &&
+		vs.newView.Primary != args.Me && vs.newView.Backup != args.Me ) {
 		//Test: Idle third server becomes backup if primary fails
+		vs.mu.Lock()
 		vs.server_idle[args.Me] = 1
+		vs.mu.Unlock()
+		//reply.View = vs.View
 	} else if (args.Viewnum == 0 && vs.View.Primary != "" &&
 	 vs.View.Primary != args.Me && vs.View.Backup == "") {
 	 	//Test: First backup
-		vs.View.Viewnum += 1
-		vs.View.Backup = args.Me
+	 	vs.mu.Lock()
+		vs.newView.Viewnum += 1
+		vs.newView.Backup = args.Me
 		vs.server_idle[args.Me] = 0
-		reply.View = vs.View
-	} else if (vs.View.Primary != "" && vs.View.Primary != args.Me &&
-	 vs.View.Backup == "") {
+		vs.mu.Unlock()	
+	} else if (vs.newView.Primary != "" && vs.newView.Primary != args.Me &&
+	 vs.newView.Backup == "") {
 	 	//Test: First backup
 		//fmt.Println(args)
-		vs.View.Viewnum += 1
-		vs.View.Backup = args.Me
+		vs.mu.Lock()
+		vs.newView.Viewnum += 1
+		vs.newView.Backup = args.Me
 		vs.server_idle[args.Me] = 0
-		reply.View = vs.View
-	} else {
-		reply.View = vs.View
-		//fmt.Println(reply)
+		vs.mu.Unlock()
+	}	
+	if (args.Viewnum == vs.View.Viewnum && args.Viewnum == 0) {
+		vs.View = vs.newView
+		vs.server_ack = args.Me
+	} else if (args.Viewnum < vs.View.Viewnum) {
+		vs.View = vs.newView
+		vs.server_ack = args.Me
+	} else if (args.Viewnum == vs.View.Viewnum && args.Me == vs.server_ack) {
+		vs.View = vs.newView
+		vs.server_ack = args.Me
 	}
 
+	reply.View = vs.View
 	return nil
 }
 
@@ -93,16 +110,27 @@ func (vs *ViewServer) Get(args *GetArgs, reply *GetReply) error {
 //Test: Idle third server becomes backup if primary fails
 //Test: Restarted primary treated as dead
 func (vs *ViewServer) make_backup_to_primary () {
-	time.Sleep(time.Millisecond*60)
-	vs.View.Viewnum += 1
-	vs.View.Primary = vs.View.Backup
-	vs.View.Backup = ""
+	//time.Sleep(time.Millisecond*60)
+	vs.mu.Lock()
+	vs.newView.Viewnum += 1
+	vs.newView.Primary = vs.View.Backup
+	vs.newView.Backup = ""
 	for k, v := range vs.server_idle {
 		if (v == 1) {
-			vs.View.Backup = k
+			vs.newView.Backup = k
 			vs.server_idle[k] = 0
 		}
 	}
+	vs.mu.Unlock()
+}
+
+
+//Lab2_PartA
+func (vs *ViewServer) remove_dead_backup() {
+	vs.mu.Lock()
+	vs.newView.Viewnum += 1
+	vs.newView.Backup = ""
+	vs.mu.Unlock()
 }
 
 //
@@ -119,6 +147,8 @@ func (vs *ViewServer) tick() {
 		if (vs.servers[k] == 0) {
 			if (k == vs.View.Primary) {
 				vs.make_backup_to_primary()
+			} else if (k == vs.View.Backup) {
+				vs.remove_dead_backup()
 			}
 		}
 	}
