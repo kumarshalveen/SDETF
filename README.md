@@ -15,6 +15,8 @@ Lab2
 Part A
 cd src/viewservice
 go test
+
+Part B
 cd src/pbservice
 export GOPATH=$(cmd)/../../
 go test
