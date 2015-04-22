@@ -104,7 +104,7 @@ func (ck *Clerk) Get(key string) string {
 	//send a RPC
 	for i := 0; ; i++ {
 		ok := call(ck.View.Primary, "PBServer.Get", args, &reply)
-		if (reply.Err == OK) {
+		if (reply.Err == OK && ok == true) {
 			break;
 		}
 		if (ok == false) {
@@ -112,6 +112,7 @@ func (ck *Clerk) Get(key string) string {
 		}
 		time.Sleep(viewservice.PingInterval)
 		ck.update_view()
+		//fmt.Println(ck.View.Primary, "OK:", ok, "reply.Err", reply.Err, "View:",ck.View)
 	}
 
 	return reply.Value
@@ -129,12 +130,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	//Test: Count RPCs to viewserver
 		ck.update_view()
 	}
-	//if (op == "Append") {//Test: at-most-once Append
-	//	ck.cache[key] += value
-	//} else {
-	//	ck.cache[key] = value
-	//}
-
+	
 	args := &PutAppendArgs{}
 	args.Key = key
 	args.Value = value//ck.cache[key]
@@ -144,16 +140,20 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	args.Id = strconv.FormatInt(nrand(), 10)
 	var reply PutAppendReply
 	//send a RPC
+	//fmt.Println(args)
 	for i := 0; ; i++ {
+		//fmt.Println("Put Sever: ",ck.View.Primary)
 		ok := call(ck.View.Primary, "PBServer.PutAppend", args, &reply)
-		if (reply.Err == OK) {
-			//ck.sent = true
-			//ck.cache[key] = ""
-			break;
-		}
+		if (reply.Err == OK && ok == true) {
+			//fmt.Println("Put or Append OK")
+			break
+		} 
 		if (ok == false) {
-			fmt.Println("Put or Append error!")
-		}	
+			//fmt.Println("Put or Append error!")
+		}
+		//if (reply.Err != OK) {
+			//fmt.Println(reply.Err)
+		//}
 		time.Sleep(viewservice.PingInterval)
 		//Test: Count RPCs to viewserver
 		ck.update_view()

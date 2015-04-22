@@ -23,7 +23,7 @@ type ViewServer struct {
 	newView        View
 	servers        map[string]int
 	server_idle    map[string]int
-	server_ack     string
+	server_ack     map[string]int
 }
 
 //
@@ -35,6 +35,9 @@ func (vs *ViewServer) Ping(args *PingArgs, reply *PingReply) error {
 	//Lab2_PartA
 	//fmt.Println(args)
 	vs.servers[args.Me] = DeadPings
+	if (args.Viewnum > 0 && args.Viewnum == vs.View.Viewnum) {
+		vs.server_ack[args.Me] = 1
+	}
 	if (args.Viewnum == 0 && vs.newView.Viewnum == 0 && 
 		vs.newView.Primary == "" && vs.newView.Backup == "") {
 		//Test: First primary
@@ -75,18 +78,21 @@ func (vs *ViewServer) Ping(args *PingArgs, reply *PingReply) error {
 		vs.newView.Backup = args.Me
 		vs.server_idle[args.Me] = 0
 		vs.mu.Unlock()
-	}	
+	}
+	vs.mu.Lock()
 	if (args.Viewnum == vs.View.Viewnum && args.Viewnum == 0) {
 		vs.View = vs.newView
-		vs.server_ack = args.Me
+		vs.server_ack[args.Me] = 0
 	} else if (args.Viewnum < vs.View.Viewnum) {
 		vs.View = vs.newView
-		vs.server_ack = args.Me
-	} else if (args.Viewnum == vs.View.Viewnum && args.Me == vs.server_ack) {
-		vs.View = vs.newView
-		vs.server_ack = args.Me
+		vs.server_ack[args.Me] = 0
+	} else if (args.Viewnum == vs.View.Viewnum && vs.server_ack[args.Me] == 1) {
+		if (vs.View.Viewnum < vs.newView.Viewnum) {
+			vs.View = vs.newView
+			vs.server_ack[args.Me] = 0
+		}		
 	}
-
+	vs.mu.Unlock()
 	reply.View = vs.View
 	return nil
 }
@@ -146,12 +152,15 @@ func (vs *ViewServer) tick() {
 		vs.servers[k] = v - 1
 		if (vs.servers[k] == 0) {
 			if (k == vs.View.Primary) {
-				vs.make_backup_to_primary()
+				//Lab2_PartB
+				if (vs.server_ack[vs.View.Primary] == 1) {
+					vs.make_backup_to_primary()//Lab2_PartA
+					vs.View = vs.newView
+				} 				
 			} else if (k == vs.View.Backup) {
 				vs.remove_dead_backup()
 			}
-			//Lab2_PartB
-			vs.View = vs.newView
+			
 		}
 	}
 }
@@ -186,6 +195,7 @@ func StartServer(me string) *ViewServer {
 	vs.View = View{0, "", ""}
 	vs.servers = make(map[string]int)
 	vs.server_idle = make(map[string]int)
+	vs.server_ack = make(map[string]int)
 
 	// tell net/rpc about our RPC server and handlers.
 	rpcs := rpc.NewServer()

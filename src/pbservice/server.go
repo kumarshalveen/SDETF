@@ -34,6 +34,7 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 	// Your code here.
 	//Lab2_PartB
 	//is primary
+	pb.mu.Lock()
 	if (pb.View.Primary == pb.me) {
 		key := args.Key
 		value, ok := pb.database[key]
@@ -46,30 +47,46 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 	} else {
 		reply.Err = ErrWrongServer
 	}
+	pb.mu.Unlock()
 	return nil
 }
 
 //Lab2_PartB
 func (pb *PBServer) CopyToBackup(args *CopyArgs, reply *CopyReply) error {
+	pb.mu.Lock()
 	if (args.Backup == pb.me && pb.View.Backup == pb.me) {
 		pb.database = args.Database
 		reply.Err = OK
+		pb.mu.Unlock()
 	} else {
 		reply.Err = ErrWrongServer
 		//return ErrWrongServer
+		pb.mu.Unlock()
 	}
 	return nil
 }
 
 func (pb *PBServer) ForwardToBackup(args *PutAppendArgs, reply *PutAppendReply) error {
+	pb.mu.Lock()
 	key := args.Key
+	if (pb.database[args.Me] == args.Id) {
+		reply.Err = OK
+		pb.mu.Unlock()
+		return nil
+	}
 	if (pb.View.Backup == pb.me) {
+		pb.database[args.Me] = args.Id
 		if (args.Op == "Put") {
 			pb.database[key] = args.Value
-		} else if (args.Op == "Append") {
+		} else {
 			pb.database[key] += args.Value
 		}
 		reply.Err = OK
+		pb.mu.Unlock()
+	} else {
+		reply.Err = ErrWrongServer
+		//return ErrWrongServer
+		pb.mu.Unlock()
 	}
 	return nil
 }
@@ -79,47 +96,53 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 	// Your code here.
 	//Lab2_PartB
 	//fmt.Println("args:", args, "reply:", reply)
-	
 	//is primary
 	pb.mu.Lock()
+	
 	if (pb.View.Primary == pb.me) {
 		//recv
 		key := args.Key
 		if (pb.database[args.Me] == args.Id) {
 			//already in
+			//fmt.Println("RREEEEEPPPEEAAAAAAAAAAAATTTTTTTTTTT")
+			reply.Err = OK//the key
 			pb.mu.Unlock()
 			return nil;
 		}
+		
+		//foward to backup
+		if (pb.View.Backup != "") {
+			//has a backup
+			fbargs := &PutAppendArgs{}
+			fbargs = args
+			var fbreply PutAppendReply
+			for i:= 0; ; i ++ {
+				ok := call(pb.View.Backup, "PBServer.ForwardToBackup", fbargs, &fbreply)
+				if (ok == false || fbreply.Err != OK) {
+					//fmt.Println("Forward to backup error!")
+					reply.Err = fbreply.Err
+					pb.mu.Unlock()
+					return nil
+				} 
+				if (ok == true && fbreply.Err == OK) {
+					break
+				}
+			}
+			
+		}
 		if (args.Op == "Put") {
 			pb.database[key] = args.Value
-		} else if (args.Op == "Append") {
+		} else {
 			pb.database[key] += args.Value
 		}
 		reply.Err = OK
 		pb.database[args.Me] = args.Id
-		//copy to backup
-		if (pb.View.Backup != "") {
-			//has a backup
-			//cpargs := &CopyArgs{}
-			//cpargs.Backup = pb.View.Backup
-			//cpargs.Database = pb.database
-			//var cpreply CopyReply
-			//ok := call(pb.View.Backup, "PBServer.CopyToBackup", cpargs, &cpreply);
-			//if (ok == false) {
-			//	fmt.Println("Copy to backup error!")
-			//}
-			ok := call(pb.View.Backup, "PBServer.ForwardToBackup", args, &reply)
-			if (ok == false) {
-				fmt.Println("Forward to backup error!")
-			}
-			
-		}
+		pb.mu.Unlock()
+	} else {
+		pb.mu.Unlock()
 	}
-
-	pb.mu.Unlock()
 	return nil
 }
-
 
 //
 // ping the viewserver periodically.
@@ -131,15 +154,37 @@ func (pb *PBServer) tick() {
 
 	// Your code here.
 	//Lab2_PartB
-	if pb.isdead() {
-		fmt.Println("DEEE")
-		return
+	pb.mu.Lock()
+	view, _ := pb.vs.Ping(pb.View.Viewnum)
+	
+	//new backup
+	if (pb.View.Primary == pb.me && // pb.View.Primary == "" && 
+		//Test: Put() immediately after primary failure
+		pb.View.Backup != view.Backup && 
+		//Test: Repeated failures/restarts
+		view.Backup != "" ) {
+		pb.View = view
+		cpargs := &CopyArgs{}
+		cpargs.Backup = pb.View.Backup
+		cpargs.Database = pb.database
+		var cpreply CopyReply
+		for i := 0; ; i++ {
+			ok := call(view.Backup, "PBServer.CopyToBackup", cpargs, &cpreply);
+			//fmt.Println(cpargs)
+			if (cpreply.Err != OK || ok != true) {
+				//fmt.Println("Copy to backup error: ",cpreply.Err)
+			}
+			if (cpreply.Err == OK && ok == true) {
+				break
+			}
+			//time.Sleep(viewservice.PingInterval)
+			//fmt.Println("view: ",view, "pb.View:",pb.View)
+		}
+	} else {
+		pb.View = view
 	}
-	view, ok := pb.vs.Ping(pb.View.Viewnum)
-	if (ok != nil) {
-		fmt.Println("ping err")
-	}
-	pb.View = view
+	pb.mu.Unlock()
+	return
 }
 
 // tell the server to shut itself down.
