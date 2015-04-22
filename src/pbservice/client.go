@@ -104,18 +104,20 @@ func (ck *Clerk) Get(key string) string {
 	//send a RPC
 	for i := 0; ; i++ {
 		ok := call(ck.View.Primary, "PBServer.Get", args, &reply)
-		if (reply.Err == OK && ok == true) {
+		if ok {
+			return reply.Value
+		}
+		/*if (reply.Err == OK && ok == true) {
 			break;
 		}
 		if (ok == false) {
 			//fmt.Println("Get error")
-		}
+		}*/
 		time.Sleep(viewservice.PingInterval)
 		ck.update_view()
 		//fmt.Println(ck.View.Primary, "OK:", ok, "reply.Err", reply.Err, "View:",ck.View)
 	}
 
-	return reply.Value
 }
 
 //
@@ -144,13 +146,16 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	for i := 0; ; i++ {
 		//fmt.Println("Put Sever: ",ck.View.Primary)
 		ok := call(ck.View.Primary, "PBServer.PutAppend", args, &reply)
-		if (reply.Err == OK && ok == true) {
+		if ok {
+			return
+		}
+		/*if (reply.Err == OK && ok == true) {
 			//fmt.Println("Put or Append OK")
 			break
 		} 
 		if (ok == false) {
 			//fmt.Println("Put or Append error!")
-		}
+		}*/
 		//if (reply.Err != OK) {
 			//fmt.Println(reply.Err)
 		//}

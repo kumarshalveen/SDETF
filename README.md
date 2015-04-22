@@ -8,3 +8,13 @@ Part 2
 cd src/mapreduce
 ./lab1_part2_test.sh
 
+
+
+Lab2
+
+Part A
+cd src/viewservice
+go test
+cd src/pbservice
+export GOPATH=$(cmd)/../../
+go test

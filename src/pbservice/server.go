@@ -11,7 +11,8 @@ import "sync/atomic"
 import "os"
 import "syscall"
 import "math/rand"
-
+//Lab2_PartB
+import "errors"
 
 
 type PBServer struct {
@@ -41,14 +42,19 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 		reply.Value = value
 		if (ok) {
 			reply.Err = OK
+			pb.mu.Unlock()
+			return nil
 		} else {
 			reply.Err = ErrNoKey
+			pb.mu.Unlock()
+			return errors.New("No key")
 		}
 	} else {
 		reply.Err = ErrWrongServer
+		pb.mu.Unlock()
+		return errors.New("Wrong server")
 	}
-	pb.mu.Unlock()
-	return nil
+	//return nil
 }
 
 //Lab2_PartB
@@ -58,12 +64,14 @@ func (pb *PBServer) CopyToBackup(args *CopyArgs, reply *CopyReply) error {
 		pb.database = args.Database
 		reply.Err = OK
 		pb.mu.Unlock()
+		return nil
 	} else {
 		reply.Err = ErrWrongServer
 		//return ErrWrongServer
 		pb.mu.Unlock()
+		return errors.New("Wrong server")
 	}
-	return nil
+	//return nil
 }
 
 func (pb *PBServer) ForwardToBackup(args *PutAppendArgs, reply *PutAppendReply) error {
@@ -83,12 +91,14 @@ func (pb *PBServer) ForwardToBackup(args *PutAppendArgs, reply *PutAppendReply) 
 		}
 		reply.Err = OK
 		pb.mu.Unlock()
+		return nil
 	} else {
 		reply.Err = ErrWrongServer
 		//return ErrWrongServer
 		pb.mu.Unlock()
+		return errors.New("Wrong server")
 	}
-	return nil
+	//return nil
 }
 
 func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
@@ -107,7 +117,7 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 			//fmt.Println("RREEEEEPPPEEAAAAAAAAAAAATTTTTTTTTTT")
 			reply.Err = OK//the key
 			pb.mu.Unlock()
-			return nil;
+			return nil
 		}
 		
 		//foward to backup
@@ -118,7 +128,13 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 			var fbreply PutAppendReply
 			for i:= 0; ; i ++ {
 				ok := call(pb.View.Backup, "PBServer.ForwardToBackup", fbargs, &fbreply)
-				if (ok == false || fbreply.Err != OK) {
+				if !ok {
+					pb.mu.Unlock()
+					return errors.New("Forward to backup error")
+				} else {
+					break
+				}
+				/*if (ok == false || fbreply.Err != OK) {
 					//fmt.Println("Forward to backup error!")
 					reply.Err = fbreply.Err
 					pb.mu.Unlock()
@@ -126,7 +142,7 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 				} 
 				if (ok == true && fbreply.Err == OK) {
 					break
-				}
+				}*/
 			}
 			
 		}
@@ -138,10 +154,13 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 		reply.Err = OK
 		pb.database[args.Me] = args.Id
 		pb.mu.Unlock()
+		return nil
 	} else {
+		reply.Err = ErrWrongServer
 		pb.mu.Unlock()
+		return errors.New("Wrong server")
 	}
-	return nil
+	//return nil
 }
 
 //
@@ -170,13 +189,18 @@ func (pb *PBServer) tick() {
 		var cpreply CopyReply
 		for i := 0; ; i++ {
 			ok := call(view.Backup, "PBServer.CopyToBackup", cpargs, &cpreply);
+			if ok {
+				break
+			} else {
+				time.Sleep(viewservice.PingInterval)
+			}
 			//fmt.Println(cpargs)
-			if (cpreply.Err != OK || ok != true) {
+			/*if (cpreply.Err != OK || ok != true) {
 				//fmt.Println("Copy to backup error: ",cpreply.Err)
 			}
 			if (cpreply.Err == OK && ok == true) {
 				break
-			}
+			}*/
 			//time.Sleep(viewservice.PingInterval)
 			//fmt.Println("view: ",view, "pb.View:",pb.View)
 		}
