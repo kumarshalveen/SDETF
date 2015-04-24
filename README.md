@@ -2,12 +2,15 @@ Lab1
 
 Part 1
 cd src/main
-./lab1_part1_test.sh
+./test-wc.sh
 
 Part 2
 cd src/mapreduce
 ./lab1_part2_test.sh
 
+Part 3
+cd src/mapreduce
+./lab1_part3_test.sh
 
 
 Lab2
