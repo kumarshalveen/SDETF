@@ -18,5 +18,5 @@ go test
 
 Part B
 cd src/pbservice
-export GOPATH=$(cmd)/../../
+export GOPATH=$(pwd)/../../
 go test
