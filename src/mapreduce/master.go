@@ -50,7 +50,7 @@ func (mr *MapReduce) JobScheduler(id int, operation JobType) {
 		//send a job
 		ok := false
 		select {
-			case worker = <- mr.idleChannel :
+			case worker = <- mr.idle_worker :
 				ok = call(worker, "Worker.DoJob", args, &reply)
 			case worker = <- mr.registerChannel :
 				ok = call(worker, "Worker.DoJob", args, &reply)
@@ -60,11 +60,11 @@ func (mr *MapReduce) JobScheduler(id int, operation JobType) {
 		if (ok) {
 			switch operation {
 			case Map :
-				mr.mapChannel <- id
+				mr.map_worker <- id
 			case Reduce :
-				mr.reduceChannel <- id
+				mr.reduce_worker <- id
 			}
-			mr.idleChannel <- worker
+			mr.idle_worker <- worker
 			return
 		} 
 	}
@@ -79,14 +79,14 @@ func (mr *MapReduce) RunMaster() *list.List {
 		go mr.JobScheduler(i, Map)
 	}
 	for i := 0; i < mr.nMap; i++ {
-		<- mr.mapChannel
+		<- mr.map_worker
 	}
 	//fmt.Println("Map done!")
 	for i := 0; i < mr.nReduce; i++ {
 		go mr.JobScheduler(i, Reduce)
 	}
 	for i := 0; i < mr.nReduce; i++ {
-		<- mr.reduceChannel
+		<- mr.reduce_worker
 	}
 
 	//fmt.Println("Reduce done")
