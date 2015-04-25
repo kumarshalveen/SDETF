@@ -78,7 +78,16 @@ func (vs *ViewServer) Ping(args *PingArgs, reply *PingReply) error {
 		vs.newView.Backup = args.Me
 		vs.server_idle[args.Me] = 0
 		vs.mu.Unlock()
+	} else if (vs.newView.Primary == "" && vs.newView.Backup == "") {
+		fmt.Println("BBBBBBBBBBOOOOOOOOOOOOTTTTTTTHHHHHHHHHDEAD")
+		vs.mu.Lock()
+		vs.newView.Primary = args.Me
+		vs.newView.Viewnum += 1
+		vs.server_idle[args.Me] = 0
+		vs.View = vs.newView
+		vs.mu.Unlock()
 	}
+
 	vs.mu.Lock()
 	if (args.Viewnum == vs.View.Viewnum && args.Viewnum == 0) {
 		vs.View = vs.newView

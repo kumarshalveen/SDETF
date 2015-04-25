@@ -623,6 +623,7 @@ func TestConcurrentSameUnreliable(t *testing.T) {
 		if vals[i] == "" {
 			t.Fatalf("Get(%v) failed from primary", i)
 		}
+		fmt.Println(i)
 	}
 
 	// kill the primary
@@ -650,6 +651,8 @@ func TestConcurrentSameUnreliable(t *testing.T) {
 		if z != vals[i] {
 			t.Fatalf("Get(%v) from backup; wanted %v, got %v", i, vals[i], z)
 		}
+		
+		fmt.Println(i)
 	}
 
 	fmt.Printf("  ... Passed\n")

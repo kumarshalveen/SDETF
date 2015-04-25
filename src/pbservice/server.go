@@ -81,22 +81,23 @@ func (pb *PBServer) ForwardToBackup(args *PutAppendArgs, reply *PutAppendReply) 
 		reply.Err = OK
 		pb.mu.Unlock()
 		return nil
-	}
-	if (pb.View.Backup == pb.me) {
-		pb.database[args.Me] = args.Id
-		if (args.Op == "Put") {
-			pb.database[key] = args.Value
-		} else {
-			pb.database[key] += args.Value
-		}
-		reply.Err = OK
-		pb.mu.Unlock()
-		return nil
 	} else {
-		reply.Err = ErrWrongServer
-		//return ErrWrongServer
-		pb.mu.Unlock()
-		return errors.New("Wrong server")
+		if (pb.View.Backup == pb.me) {
+			pb.database[args.Me] = args.Id
+			if (args.Op == "Put") {
+				pb.database[key] = args.Value
+			} else {
+				pb.database[key] += args.Value
+			}
+			reply.Err = OK
+			pb.mu.Unlock()
+			return nil
+		} else {
+			reply.Err = ErrWrongServer
+			//return ErrWrongServer
+			pb.mu.Unlock()
+			return errors.New("Wrong server")
+		}
 	}
 	//return nil
 }
