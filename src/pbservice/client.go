@@ -147,8 +147,9 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 		//fmt.Println("Put Sever: ",ck.View.Primary)
 		ok := call(ck.View.Primary, "PBServer.PutAppend", args, &reply)
 		if ok {
+			//fmt.Println(args)
 			return
-		}
+		} else {
 		/*if (reply.Err == OK && ok == true) {
 			//fmt.Println("Put or Append OK")
 			break
@@ -162,6 +163,8 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 		time.Sleep(viewservice.PingInterval)
 		//Test: Count RPCs to viewserver
 		ck.update_view()
+		//fmt.Println(args)
+		}
 	}
 	
 }

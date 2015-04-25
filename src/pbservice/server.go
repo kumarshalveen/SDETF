@@ -26,7 +26,9 @@ type PBServer struct {
 	//Lab2_PartB
 	database   map[string]string
 	View       viewservice.View
+	newView       viewservice.View
 	Idmap      map[string]bool
+	Copyed     bool  //copyed to backup
 }
 
 
@@ -69,7 +71,7 @@ func (pb *PBServer) CopyToBackup(args *CopyArgs, reply *CopyReply) error {
 		reply.Err = ErrWrongServer
 		//return ErrWrongServer
 		pb.mu.Unlock()
-		return errors.New("Wrong server")
+		return errors.New("CopyToBackup. Wrong server, this is not a Backup")
 	}
 	//return nil
 }
@@ -77,27 +79,22 @@ func (pb *PBServer) CopyToBackup(args *CopyArgs, reply *CopyReply) error {
 func (pb *PBServer) ForwardToBackup(args *PutAppendArgs, reply *PutAppendReply) error {
 	pb.mu.Lock()
 	key := args.Key
-	if (pb.database[args.Me] == args.Id) {
+	if (pb.View.Backup == pb.me) {
+		if (args.Op == "Put") {
+			pb.database[key] = args.Value
+		} else {
+			if (args.Id != pb.database[args.Me]) {
+				pb.database[key] += args.Value
+			}
+		}
 		reply.Err = OK
+		pb.database[args.Me] = args.Id
 		pb.mu.Unlock()
 		return nil
 	} else {
-		if (pb.View.Backup == pb.me) {
-			pb.database[args.Me] = args.Id
-			if (args.Op == "Put") {
-				pb.database[key] = args.Value
-			} else {
-				pb.database[key] += args.Value
-			}
-			reply.Err = OK
-			pb.mu.Unlock()
-			return nil
-		} else {
-			reply.Err = ErrWrongServer
-			//return ErrWrongServer
-			pb.mu.Unlock()
-			return errors.New("Wrong server")
-		}
+		reply.Err = ErrWrongServer
+		pb.mu.Unlock()
+		return errors.New("ForwardToBackup. Wrong server, this is not a Backup")
 	}
 	//return nil
 }
@@ -109,7 +106,7 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 	//fmt.Println("args:", args, "reply:", reply)
 	//is primary
 	pb.mu.Lock()
-	
+
 	if (pb.View.Primary == pb.me) {
 		//recv
 		key := args.Key
@@ -119,47 +116,48 @@ func (pb *PBServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error 
 			reply.Err = OK//the key
 			pb.mu.Unlock()
 			return nil
-		}
-		
-		//foward to backup
-		if (pb.View.Backup != "") {
-			//has a backup
-			fbargs := &PutAppendArgs{}
-			fbargs = args
-			var fbreply PutAppendReply
-			for i:= 0; ; i ++ {
+		} else {
+			//foward to backup
+			if (pb.View.Backup != "") {//has a backup
+				fbargs := &PutAppendArgs{}
+				fbargs = args
+				var fbreply PutAppendReply
 				ok := call(pb.View.Backup, "PBServer.ForwardToBackup", fbargs, &fbreply)
 				if !ok {
 					pb.mu.Unlock()
+					//time.Sleep(viewservice.PingInterval)
+					pb.View = pb.newView
 					return errors.New("Forward to backup error")
-				} else {
-					break
-				}
-				/*if (ok == false || fbreply.Err != OK) {
-					//fmt.Println("Forward to backup error!")
-					reply.Err = fbreply.Err
-					pb.mu.Unlock()
-					return nil
+					//break
+				} else { 
+					//fmt.Println("Forward,",args)
 				} 
-				if (ok == true && fbreply.Err == OK) {
-					break
+				/*if (fbreply.Err != OK || ok != true) {
+					//fmt.Println("Foward to backup error: ",fbreply.Err)
 				}*/
 			}
-			
+			// } else {
+			// 	pb.mu.Unlock()
+			// 	return errors.New("Forward to backup error")
+			// }
+			if (args.Op == "Put") {
+				pb.database[key] = args.Value
+			} else {
+				pb.database[key] += args.Value
+			}
+			reply.Err = OK
+			pb.database[args.Me] = args.Id
+			//fmt.Println("Self,",args)
+			pb.mu.Unlock()
+			return nil
 		}
-		if (args.Op == "Put") {
-			pb.database[key] = args.Value
-		} else {
-			pb.database[key] += args.Value
-		}
-		reply.Err = OK
-		pb.database[args.Me] = args.Id
-		pb.mu.Unlock()
-		return nil
 	} else {
 		reply.Err = ErrWrongServer
+		//time.Sleep(viewservice.PingInterval)
+		pb.View = pb.newView
 		pb.mu.Unlock()
-		return errors.New("Wrong server")
+
+		return errors.New("PutAppend. Wrong server, this is not a Primary")
 	}
 	//return nil
 }
@@ -174,41 +172,50 @@ func (pb *PBServer) tick() {
 
 	// Your code here.
 	//Lab2_PartB
-	pb.mu.Lock()
-	view, _ := pb.vs.Ping(pb.View.Viewnum)
+	pb.mu.Lock()	
+	pb.newView, _ = pb.vs.Ping(pb.View.Viewnum)
 	
 	//new backup
 	if (pb.View.Primary == pb.me && // pb.View.Primary == "" && 
 		//Test: Put() immediately after primary failure
-		pb.View.Backup != view.Backup && 
+		pb.View.Backup != pb.newView.Backup && 
 		//Test: Repeated failures/restarts
-		view.Backup != "" ) {
-		pb.View = view
+		pb.newView.Backup != "") {
+		//pb.View = view
+		//pb.Copyed = false
 		cpargs := &CopyArgs{}
-		cpargs.Backup = pb.View.Backup
+		cpargs.Backup = pb.newView.Backup//pb.View.Backup
 		cpargs.Database = pb.database
 		var cpreply CopyReply
-		for i := 0; ; i++ {
-			ok := call(view.Backup, "PBServer.CopyToBackup", cpargs, &cpreply);
-			if ok {
-				break
-			} else {
-				time.Sleep(viewservice.PingInterval)
-			}
-			//fmt.Println(cpargs)
-			/*if (cpreply.Err != OK || ok != true) {
-				//fmt.Println("Copy to backup error: ",cpreply.Err)
-			}
-			if (cpreply.Err == OK && ok == true) {
-				break
-			}*/
-			//time.Sleep(viewservice.PingInterval)
-			//fmt.Println("view: ",view, "pb.View:",pb.View)
+		ok := call(pb.newView.Backup, "PBServer.CopyToBackup", cpargs, &cpreply);
+		if ok {
+			pb.Copyed = true
+			pb.View = pb.newView
+			//fmt.Println(pb.database)
+			pb.mu.Unlock()	
+			//break
+		} else {
+			pb.Copyed = false
+			pb.mu.Unlock()
+			return
+			//break//time.Sleep(viewservice.PingInterval)
 		}
+		//fmt.Println(cpargs)
+		/*if (cpreply.Err != OK || ok != true) {
+			//fmt.Println("Copy to backup error: ",cpreply.Err)
+		}*/
+		//time.Sleep(viewservice.PingInterval)
+		//fmt.Println("view: ",view, "pb.View:",pb.View)
 	} else {
-		pb.View = view
+		//if (pb.Copyed == true) {
+			//pb.View = view
+		//} else 
+		//if (pb.View.Viewnum == 0 ) {
+			pb.View = pb.newView
+		//}
+			//fmt.Println("view:",view,"\npb.View:",pb.View)
+		pb.mu.Unlock()
 	}
-	pb.mu.Unlock()
 	return
 }
 
@@ -246,7 +253,8 @@ func StartServer(vshost string, me string) *PBServer {
 	pb.database = make(map[string]string)
 	pb.View = viewservice.View{0,"",""}
 	pb.Idmap = make(map[string]bool)
-
+	pb.Copyed = false
+	
 	rpcs := rpc.NewServer()
 	rpcs.Register(pb)
 

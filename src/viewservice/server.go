@@ -20,10 +20,9 @@ type ViewServer struct {
 	// Your declarations here.
 	//Lab2_PartA
 	View           View
-	newView        View
 	servers        map[string]int
-	server_idle    map[string]int
 	server_ack     map[string]int
+	server_idle    map[string]int
 }
 
 //
@@ -34,75 +33,45 @@ func (vs *ViewServer) Ping(args *PingArgs, reply *PingReply) error {
 	// Your code here.
 	//Lab2_PartA
 	//fmt.Println(args)
+	vs.mu.Lock()
 	vs.servers[args.Me] = DeadPings
 	if (args.Viewnum > 0 && args.Viewnum == vs.View.Viewnum) {
 		vs.server_ack[args.Me] = 1
 	}
-	if (args.Viewnum == 0 && vs.newView.Viewnum == 0 && 
-		vs.newView.Primary == "" && vs.newView.Backup == "") {
-		//Test: First primary
-		vs.mu.Lock()
-		vs.newView.Viewnum += 1
-		vs.newView.Primary = args.Me
-		vs.server_idle[args.Me] = 0
-		vs.mu.Unlock()		
-		//fmt.Println(reply)
-	} else if (args.Viewnum == 0 && vs.newView.Viewnum > 0 &&
-		vs.newView.Primary == args.Me) {
-		//Test: Restarted primary treated as dead
-		//Test: Dead backup is removed from view
-		//vs.View.Primary = ""
-		vs.make_backup_to_primary()
-		//reply.View = vs.View
-	} else if (vs.newView.Primary != "" && vs.newView.Backup != "" &&
-		vs.newView.Primary != args.Me && vs.newView.Backup != args.Me ) {
-		//Test: Idle third server becomes backup if primary fails
-		vs.mu.Lock()
-		vs.server_idle[args.Me] = 1
-		vs.mu.Unlock()
-		//reply.View = vs.View
-	} else if (args.Viewnum == 0 && vs.View.Primary != "" &&
-	 vs.View.Primary != args.Me && vs.View.Backup == "") {
-	 	//Test: First backup
-	 	vs.mu.Lock()
-		vs.newView.Viewnum += 1
-		vs.newView.Backup = args.Me
-		vs.server_idle[args.Me] = 0
-		vs.mu.Unlock()	
-	} else if (vs.newView.Primary != "" && vs.newView.Primary != args.Me &&
-	 vs.newView.Backup == "") {
-	 	//Test: First backup
-		//fmt.Println(args)
-		vs.mu.Lock()
-		vs.newView.Viewnum += 1
-		vs.newView.Backup = args.Me
-		vs.server_idle[args.Me] = 0
-		vs.mu.Unlock()
-	} else if (vs.newView.Primary == "" && vs.newView.Backup == "") {
-		fmt.Println("BBBBBBBBBBOOOOOOOOOOOOTTTTTTTHHHHHHHHHDEAD")
-		vs.mu.Lock()
-		vs.newView.Primary = args.Me
-		vs.newView.Viewnum += 1
-		vs.server_idle[args.Me] = 0
-		vs.View = vs.newView
-		vs.mu.Unlock()
-	}
-
-	vs.mu.Lock()
-	if (args.Viewnum == vs.View.Viewnum && args.Viewnum == 0) {
-		vs.View = vs.newView
+	if (args.Viewnum == 0 && vs.View.Primary == "") {
+		//first primary
+		vs.View.Viewnum++
+		vs.View.Primary = args.Me
 		vs.server_ack[args.Me] = 0
-	} else if (args.Viewnum < vs.View.Viewnum) {
-		vs.View = vs.newView
-		vs.server_ack[args.Me] = 0
-	} else if (args.Viewnum == vs.View.Viewnum && vs.server_ack[args.Me] == 1) {
-		if (vs.View.Viewnum < vs.newView.Viewnum) {
-			vs.View = vs.newView
+	} else if (args.Me == vs.View.Primary) {
+		//get ping from primary
+		if (args.Viewnum == 0) {
+			//restart
+			vs.make_backup_to_primary()
+		} else if (args.Viewnum == vs.View.Viewnum) {
+			//acked
+			vs.server_ack[args.Me] = 1
+		} else {
 			vs.server_ack[args.Me] = 0
-		}		
-	}
-	vs.mu.Unlock()
+		}
+	} else if (vs.View.Backup == "" && vs.server_ack[vs.View.Primary] == 1) {
+		//first backup
+		vs.View.Viewnum++
+		vs.View.Backup = args.Me
+		vs.server_ack[args.Me] = 0
+	} else if (args.Me == vs.View.Backup) {
+		//get ping from backup
+		if (args.Viewnum == 0) {
+			//restart
+			if (vs.server_ack[vs.View.Primary] == 1) {
+				vs.View.Backup = args.Me
+				vs.View.Viewnum++
+				vs.server_ack[args.Me] = 0
+			}
+		}
+	} 
 	reply.View = vs.View
+	vs.mu.Unlock()	
 	return nil
 }
 
@@ -113,8 +82,9 @@ func (vs *ViewServer) Get(args *GetArgs, reply *GetReply) error {
 
 	// Your code here.
 	//Lab2_PartA
+	vs.mu.Lock()
 	reply.View = vs.View
-
+	vs.mu.Unlock()
 	return nil
 }
 
@@ -125,27 +95,23 @@ func (vs *ViewServer) Get(args *GetArgs, reply *GetReply) error {
 //Test: Idle third server becomes backup if primary fails
 //Test: Restarted primary treated as dead
 func (vs *ViewServer) make_backup_to_primary () {
-	//time.Sleep(time.Millisecond*60)
-	vs.mu.Lock()
-	vs.newView.Viewnum += 1
-	vs.newView.Primary = vs.View.Backup
-	vs.newView.Backup = ""
-	for k, v := range vs.server_idle {
-		if (v == 1) {
-			vs.newView.Backup = k
-			vs.server_idle[k] = 0
-		}
+	if (vs.View.Backup == "") {
+		vs.View.Primary = ""
+	} else {
+		vs.View.Viewnum++
+		vs.View.Primary = vs.View.Backup
+		vs.View.Backup = ""
 	}
-	vs.mu.Unlock()
+	vs.server_ack[vs.View.Primary] = 0
 }
 
 
 //Lab2_PartA
 func (vs *ViewServer) remove_dead_backup() {
-	vs.mu.Lock()
-	vs.newView.Viewnum += 1
-	vs.newView.Backup = ""
-	vs.mu.Unlock()
+	//vs.mu.Lock()
+	vs.View.Viewnum += 1
+	vs.View.Backup = ""
+	//vs.mu.Unlock()
 }
 
 //
@@ -157,21 +123,22 @@ func (vs *ViewServer) tick() {
 
 	// Your code here.
 	//Lab2_PartA
-	for k, v := range vs.servers {
-		vs.servers[k] = v - 1
-		if (vs.servers[k] == 0) {
-			if (k == vs.View.Primary) {
-				//Lab2_PartB
-				if (vs.server_ack[vs.View.Primary] == 1) {
-					vs.make_backup_to_primary()//Lab2_PartA
-					vs.View = vs.newView
-				} 				
-			} else if (k == vs.View.Backup) {
-				vs.remove_dead_backup()
-			}
-			
-		}
+	vs.mu.Lock()
+	p, b := vs.View.Primary, vs.View.Backup
+	if (p != "") {
+		vs.servers[p]--
 	}
+	if (b != "") {
+		vs.servers[b]--
+	}
+	if (vs.servers[p] == 0 && vs.server_ack[p] == 1 && p != "") {
+		vs.make_backup_to_primary()
+	} 
+	if (vs.servers[b] == 0 && vs.server_ack[p] == 1 && b != "") {
+		vs.remove_dead_backup()
+		//vs.View.Viewnum++
+	}
+	vs.mu.Unlock()
 }
 
 //
