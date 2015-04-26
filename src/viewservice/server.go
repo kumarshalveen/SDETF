@@ -23,6 +23,7 @@ type ViewServer struct {
 	servers        map[string]int
 	server_ack     map[string]int
 	server_idle    map[string]int
+	started        bool
 }
 
 //
@@ -40,9 +41,14 @@ func (vs *ViewServer) Ping(args *PingArgs, reply *PingReply) error {
 	}
 	if (args.Viewnum == 0 && vs.View.Primary == "") {
 		//first primary
+		if (vs.started) {
+			vs.mu.Unlock()
+			return nil
+		}
 		vs.View.Viewnum++
 		vs.View.Primary = args.Me
 		vs.server_ack[args.Me] = 0
+		vs.started = true
 	} else if (args.Me == vs.View.Primary) {
 		//get ping from primary
 		if (args.Viewnum == 0) {
@@ -125,14 +131,14 @@ func (vs *ViewServer) tick() {
 	//Lab2_PartA
 	vs.mu.Lock()
 	p, b := vs.View.Primary, vs.View.Backup
-	if (vs.servers[p] == 0 && vs.servers[b] == 0) {
-		vs.mu.Unlock()
-		return
-	}
-	if (p == "" && b == "") {
-		vs.mu.Unlock()
-		return
-	}
+	// if (vs.servers[p] == 0 && vs.servers[b] == 0) {
+	// 	vs.mu.Unlock()
+	// 	return
+	// }
+	// if (p == "" && b == "") {
+	// 	vs.mu.Unlock()
+	// 	return
+	// }
 	if (p != "") {
 		vs.servers[p]--
 	}
@@ -180,6 +186,7 @@ func StartServer(me string) *ViewServer {
 	vs.servers = make(map[string]int)
 	vs.server_idle = make(map[string]int)
 	vs.server_ack = make(map[string]int)
+	vs.started = false
 
 	// tell net/rpc about our RPC server and handlers.
 	rpcs := rpc.NewServer()
