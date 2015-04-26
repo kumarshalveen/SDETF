@@ -129,6 +129,10 @@ func (vs *ViewServer) tick() {
 		vs.mu.Unlock()
 		return
 	}
+	if (p == "" && b == "") {
+		vs.mu.Unlock()
+		return
+	}
 	if (p != "") {
 		vs.servers[p]--
 	}
