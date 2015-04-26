@@ -125,15 +125,15 @@ func (vs *ViewServer) tick() {
 	//Lab2_PartA
 	vs.mu.Lock()
 	p, b := vs.View.Primary, vs.View.Backup
+	if (vs.servers[p] == 0 && vs.servers[b] == 0) {
+		vs.mu.Unlock()
+		return
+	}
 	if (p != "") {
 		vs.servers[p]--
 	}
 	if (b != "") {
 		vs.servers[b]--
-	}
-	if (vs.servers[p] == 0 && vs.servers[b] == 0) {
-		vs.mu.Unlock()
-		return
 	}
 	if (vs.servers[p] == 0 && vs.server_ack[p] == 1 && p != "") {
 		vs.make_backup_to_primary()
