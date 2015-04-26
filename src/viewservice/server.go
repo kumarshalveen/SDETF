@@ -131,6 +131,10 @@ func (vs *ViewServer) tick() {
 	if (b != "") {
 		vs.servers[b]--
 	}
+	if (vs.servers[p] == 0 && vs.servers[b] == 0) {
+		vs.mu.Unlock()
+		return
+	}
 	if (vs.servers[p] == 0 && vs.server_ack[p] == 1 && p != "") {
 		vs.make_backup_to_primary()
 	} 
