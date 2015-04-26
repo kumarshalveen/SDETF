@@ -55,6 +55,10 @@ type Paxos struct {
 
 
 	// Your data here.
+	//Lab3_PartA
+	n_servers  int32 //number of servers
+	database   map[int]string
+	instance   map[int]*State
 }
 
 //
@@ -93,16 +97,150 @@ func call(srv string, name string, args interface{}, reply interface{}) bool {
 	return false
 }
 
+//Lab3_PartA
+//struct state definitions
+type State struct {
+	n_p        int32 //highest prepare seen
+	n_a        int32 //highest accept seen
+	v_a        int32 //highest accept seen
+	status     Fate  //this instance's status
+}
+
+//Lab3_PartA
+//prepare RPCs' definitions
+type PrepareArgs struct {
+	n       int32 //seq
+}
+type PrepareReply struct {
+	n       int32 //prepare n
+	n_a     int32 //highest accept seen
+	v_a     int32 //highest accept seen
+	ok      bool  //whether prepared
+}
+
+//Lab3_PartA
+//accept RPCs' definitions
+type AcceptArgs struct {
+	n       int32 //accept n
+	v       interface{}//value
+}
+type AcceptReply struct {
+	n       int32 //accept n
+	ok      bool  //whether accept
+}
+
+//Lab3_PartA
+//decide RPCs' definitions
+type DecideArgs struct {
+	n      int32      //decide n
+	v      interface{}//decide value, send to all
+}
+type DecideReply struct {
+	ok     bool //whether success
+}
+
+//Lab3_PartA
+func (px *Paxos) Proposer(seq int, v interface{}){
+	for {//while not decided
+		preargs := &PrepareArgs{seq}
+		var prereply PrepareReply
+		n_prepare_ok := 0
+		v_h := interface{}//v_a with highest n_a
+		n_h := -1         //highest n_a
+		for _, v := range peers {
+			//send prepare(n) to all servers, including itself
+			for {
+				ok := call(v, "Paxos.Prepare", preargs, &prereply)
+				if (ok == true) {//net failed, retry
+					break
+				}
+			}
+			if (prereply.ok == true) {
+				n_prepare_ok++
+				if (prereply.n_a > n_h) {
+					n_h = prereply.n_a
+					v_h = prereply.v_a
+				}
+			}
+		} 
+
+		//recv prepare ok from majority
+		n_accept_ok := 0
+		if (n_prepare_ok > px.n_servers/2) {
+			accargs := &AcceptArgs{n, v_h}
+			var accreply AcceptReply
+			for _, v2 := range peers {
+				//send accept(n v') to all
+				for {
+					ok2 := call(v2, "Paxos.Accept", accargs, &accreply)
+					if (ok2 == true) {//retry, if net failed
+						break
+					}
+				}
+				if (accreply.ok == true) {
+					n_accept_ok++
+				}
+			}
+			
+			//recv accept ok from majority
+			if (n_accept_ok > px.n_servers/2) {
+				decargs := &DecideArgs{n, v}//v or v_h
+				var decreply DecideReply
+				for _, v3 := range peers {
+					//sned decided(v') to all
+					for {
+						ok3 := call(v3, "Paxos.Decide", decargs, &decrseply)
+						if (ok3 == true) {//retry, if net failed
+							break
+						}
+					}
+				} 
+			}
+		} else {
+			return
+		}
+	}
+}
+
+//Lab3_PartA
+func (px *Paxos) Prepare(args *PrepareArgs, reply *PrepareReply) error { 
+	if (args.n > px.n_p) {
+		px.n_p = args.n
+		reply = &PrepareReply{args.n, px.n_a, px.n_p, true}
+	} else {
+		reply = &PrepareReply{px.n, px.n_a, px.n_p, false}
+	}
+	return nil
+}
+
+//Lab3_PartA
+func (px *Paxos) Accept(args *AcceptArgs, reply *AcceptReply) error { 
+	if (args.n > px.n_p) {
+		px.n_p, px.n_a, px.v_a = args.n, args.n, args.v
+		reply = &AcceptReply{args.n, true}
+	} else {
+		reply = &AcceptReply{px.n_p, false}
+	}
+	return nil
+}
+
+//Lab3_PartA
+func (px *Paxos) Decide(args *DecideArgs, reply *DecideReply) error { 
+	database[args.n] = args.v
+}
 
 //
 // the application wants paxos to start agreement on
-// instance seq, with proposed value v.
+// instance seq, with proposed value v. Athour: lmhtq
 // Start() returns right away; the application will
 // call Status() to find out if/when agreement
 // is reached.
 //
 func (px *Paxos) Start(seq int, v interface{}) {
 	// Your code here.
+	//Lab3_PartA
+	px.Proposer(seq, v)
+	return
 }
 
 //
