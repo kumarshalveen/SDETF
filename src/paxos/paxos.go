@@ -62,6 +62,7 @@ type Paxos struct {
 	database   map[int]interface{}
 	instance   map[int]*State
 	done       map[int]bool
+	Done_max   int
 }
 
 //
@@ -142,6 +143,7 @@ type DecideArgs struct {
 	Seq    int        //seq
 	Num    int        //decide n
 	Val    interface{}//decide value, send to all
+	Done_max   int    //the Done number
 }
 type DecideReply struct {
 	Seq    int   //seq
@@ -160,17 +162,18 @@ func (px *Paxos) Proposer(seq int, v interface{}){
 		n_h := -1         //highest n_a
 		for i1, v := range px.peers {
 			//send prepare(n) to all servers, including itself
-			for {
+			//for {
 				if (i1 == px.me) {
 					px.self_prepare(preargs, &prereply)
-					break
+					//break
 				}
-				call(v, "Paxos.Prepare", preargs, &prereply)
-				//if (ok == true) {//net failed, retry
-					//fmt.Println(prereply)
-					break
-				//}
-			}
+				ok := call(v, "Paxos.Prepare", preargs, &prereply)
+				if (ok == false) {//net failed, retry
+					//fmt.Println("recv true:", prereply)
+					//break
+					continue
+				}
+			//}
 			if (prereply.OK == true) {
 				//recv a prepare_ok
 				n_prepare_ok++
@@ -178,13 +181,15 @@ func (px *Paxos) Proposer(seq int, v interface{}){
 					n_h = prereply.N_a
 					v_h = prereply.V_a
 				}
+				if (n < n_h) {
+					n = n_h
+				}
 			} else {//choose a n bigger than any n seen so far
 				if (n < prereply.Num) { 
 					n = prereply.Num
 				}
 			}
 		} 
-
 		//recv prepare ok from majority
 		n_accept_ok := 0
 		if (n_prepare_ok > px.n_servers/2) {
@@ -192,47 +197,49 @@ func (px *Paxos) Proposer(seq int, v interface{}){
 			var accreply AcceptReply
 			for i2, v2 := range px.peers {
 				//send accept(n v') to all
-				for {
+				//for {
 					if (i2 == px.me) {
 						px.self_accept(accargs, &accreply)
-						break
+						//break
 					}
-					call(v2, "Paxos.Accept", accargs, &accreply)
-					//if (ok2 == true) {//retry, if net failed
+					ok2 := call(v2, "Paxos.Accept", accargs, &accreply)
+					if (ok2 == false) {//retry, if net failed
 						//fmt.Println(accreply)
-						break
-					//}
+				//		break
+						continue
+			 		}
 
-				}
+				//}
 				if (accreply.OK == true) {
 					n_accept_ok++
-				}
+			 	}
 			}
 			
 			//recv accept ok from majority
 			if (n_accept_ok > px.n_servers/2) {
-				decargs := &DecideArgs{seq, n, v}//v or v_h
+				decargs := &DecideArgs{seq, n, v, px.Done_max}//v or v_h
 				var decreply DecideReply
 				for i3, v3 := range px.peers {
 					//sned decided(v') to all
-					for {
-						//fmt.Println("Deciding")
+					//for {
 						if (i3 == px.me) {
 							px.self_decide(decargs, &decreply)
-							break
+ 					//		break
 						}
 						call(v3, "Paxos.Decide", decargs, &decreply)
 						//if (ok3 == true) {//retry, if net failed
-							//fmt.Println(decreply)
-							break
-						//}
-					}
-				} 
+ 							//fmt.Println(decreply)
+					//		break
+  						//}
+  					//}
+  				} 
+			} else {
+				//continue
 			}
 		} else {
-			//return
+			//continue
 		}
-		time.Sleep(100*time.Millisecond)
+		time.Sleep(20*time.Millisecond)
 		stat, _ := px.Status(seq)
 		if (stat == Decided) {//while not decided
 			break
@@ -299,9 +306,7 @@ func (px *Paxos) self_accept(args *AcceptArgs, reply *AcceptReply) {
 	seq, n, v := args.Seq, args.Num, args.Val
 	_, ok := px.instance[seq]
 	if (ok == false) {
-    	px.instance[seq].n_p = n
-		px.instance[seq].n_a = n
-		px.instance[seq].v_a = v
+		px.instance[seq] = &State{n, n, v, Pending}
 		reply.Seq, reply.Num, reply.OK = seq, n, true
 	} else {
 		if (n >= px.instance[seq].n_p) {
@@ -322,9 +327,7 @@ func (px *Paxos) Accept(args *AcceptArgs, reply *AcceptReply) error {
 	seq, n, v := args.Seq, args.Num, args.Val
 	_, ok := px.instance[seq]
 	if (ok == false) {
-    	px.instance[seq].n_p = n
-		px.instance[seq].n_a = n
-		px.instance[seq].v_a = v
+		px.instance[seq] = &State{n, n, v, Pending}
 		reply.Seq, reply.Num, reply.OK = seq, n, true
 	} else {
 		if (n >= px.instance[seq].n_p) {
@@ -343,10 +346,18 @@ func (px *Paxos) Accept(args *AcceptArgs, reply *AcceptReply) error {
 //Lab3_PartA
 func (px *Paxos) self_decide(args *DecideArgs, reply *DecideReply) {
 	px.mu.Lock() 
-	seq, n, v := args.Seq, args.Num, args.Val
+	seq, n, v, Done := args.Seq, args.Num, args.Val, args.Done_max
 	px.database[n] = v
-	px.instance[seq].status = Decided
+	_, ok := px.instance[seq]
+	if (ok == false) {
+		px.instance[seq] = &State{n, n, v, Decided}
+	} else {
+		px.instance[seq].status = Decided
+	}
 	px.done[seq] = true
+	if (Done < px.Done_max) {
+		px.Done_max = Done
+	}
 	reply.Seq, reply.OK = args.Seq, true
 	//fmt.Println(reply)
 	px.mu.Unlock()
@@ -354,11 +365,20 @@ func (px *Paxos) self_decide(args *DecideArgs, reply *DecideReply) {
 
 //Lab3_PartA
 func (px *Paxos) Decide(args *DecideArgs, reply *DecideReply) error {
-	px.mu.Lock() 
-	seq, n, v := args.Seq, args.Num, args.Val
-	px.database[n] = v
-	px.instance[seq].status = Decided
+	px.mu.Lock()
+	//fmt.Println("I am server:", px.me, "DECIDE!!!!!!!!!!!!")
+	seq, n, v, Done := args.Seq, args.Num, args.Val, args.Done_max
+	px.database[seq] = v
+	_, ok := px.instance[seq]
+	if (ok == false) {
+		px.instance[seq] = &State{n, n, v, Decided}
+	} else {
+		px.instance[seq].status = Decided
+	}
 	px.done[seq] = true
+	if (Done < px.Done_max) {
+		px.Done_max = Done
+	}
 	reply.Seq, reply.OK = args.Seq, true
 	//fmt.Println(reply)
 	px.mu.Unlock()
@@ -375,7 +395,12 @@ func (px *Paxos) Decide(args *DecideArgs, reply *DecideReply) error {
 func (px *Paxos) Start(seq int, v interface{}) {
 	// Your code here.
 	//Lab3_PartA
-	px.Proposer(seq, v)
+	go func() {
+		if (seq <= px.Done_max) {
+			return
+		}
+		px.Proposer(seq, v)
+	}()
 	return
 }
 
@@ -389,11 +414,22 @@ func (px *Paxos) Done(seq int) {
 	// Your code here.
 	//Lab3_PartA
 	px.mu.Lock()
-	fmt.Println(px.done)
+	/*fmt.Println(px.done)
 	for k, _ := range px.instance {
 		if (k <= seq) {
 			//px.done[k] = true
 			delete(px.done, k)
+		}
+	}*/
+	if (seq > px.Done_max) {
+		px.Done_max = seq
+	} else {
+		px.mu.Unlock()
+		return
+	}
+	for k, _ := range px.database {
+		if (k < seq) {
+			delete(px.database, k)
 		}
 	}
 	px.mu.Unlock()
@@ -408,6 +444,10 @@ func (px *Paxos) Max() int {
 	// Your code here.
 	//Lab_PartA
 	px.mu.Lock()
+	if (len(px.instance) == 0) {
+		//instance is empty
+		return px.Done_max + 1
+	}
 	max := -1
 	for k, _ := range px.instance {
 		if (max < k) {
@@ -453,16 +493,18 @@ func (px *Paxos) Min() int {
 	px.mu.Lock()
 	if (len(px.done) == 0) {
 		px.mu.Unlock()
-		return -1
+		return px.Done_max + 1
 	}
-	min := 9999999//in fact, it is the max seq which has done
+	//min := 9999999//in fact, it is the max seq which has done
 	//fmt.Println(px.done)
 	//fmt.Println(px.instance)
-	for k, _ := range px.done {
+	//fmt.Println(px.Done_max)
+	/*for k, _ := range px.instance {
 		if (k < min) {
 			min = k
 		}
-	}
+	}*/
+	min := px.Done_max + 1
 	px.mu.Unlock()
 	return min
 	//return 0
@@ -478,11 +520,11 @@ func (px *Paxos) Min() int {
 func (px *Paxos) Status(seq int) (Fate, interface{}) {
 	// Your code here.
 	stat, ok := px.instance[seq]
-	if (ok == false) {
-		return Pending, nil
-	}
 	if (seq < px.Min()) {
 		return Forgotten, nil
+	}
+	if (ok == false) {
+		return Pending, nil
 	}
 	if (stat.status == Decided) {
 		return Decided, nil
@@ -541,6 +583,7 @@ func Make(peers []string, me int, rpcs *rpc.Server) *Paxos {
 	px.database = make(map[int]interface{})
 	px.n_servers = len(peers)
 	px.done = make(map[int]bool)
+	px.Done_max = -1
 
 	if rpcs != nil {
 		// caller will create socket &c
