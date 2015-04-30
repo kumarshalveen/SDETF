@@ -12,6 +12,9 @@ import "syscall"
 import "encoding/gob"
 import "math/rand"
 
+//Lab3_PartB
+import "errors"
+import "time"
 
 const Debug = 0
 
@@ -22,11 +25,12 @@ func DPrintf(format string, a ...interface{}) (n int, err error) {
 	return
 }
 
-
 type Op struct {
 	// Your definitions here.
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
+	//Lan3_PartB
+
 }
 
 type KVPaxos struct {
@@ -38,18 +42,92 @@ type KVPaxos struct {
 	px         *paxos.Paxos
 
 	// Your definitions here.
+	servers    []string//servers of paxos
+	seq        int     //the instance number
+	step       int     //the interval of seq increment
+	database   map[string]string //database
+	instance   map[int]interface{} //instance
 }
 
 
 func (kv *KVPaxos) Get(args *GetArgs, reply *GetReply) error {
 	// Your code here.
-	return nil
+	//Lab3_PartB
+	kv.mu.Lock()
+	proposal := &Proposal{args.Me, args.Id}
+	for {
+		kv.px.Start(kv.seq, proposal)//request
+		to := 10*time.Millisecond
+		for {
+			status, _ := kv.px.Status(kv.seq)
+			if status == paxos.Decided {//have decided
+				val, ok := kv.database[args.Key]
+				if (ok == false) {//key doesnt exist
+					reply.Err = ErrNoKey
+				} else {
+					reply.Value = val
+					reply.Err = OK
+				}
+				kv.seq += kv.step
+				kv.mu.Unlock()
+				return nil
+			}
+			time.Sleep(to)
+			if (to < 10*time.Second) {
+				to *= 2
+			}
+		}
+	}
+	kv.mu.Unlock()
+	return errors.New("Get error")
 }
 
 func (kv *KVPaxos) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 	// Your code here.
+	//Lab3_PartB
+	kv.mu.Lock()
+	proposal := &Proposal{args.Me, args.Id}
+	for {
+		kv.px.Start(kv.seq, proposal)
+		to := 10*time.Millisecond
+		for {
+			status, _ := kv.px.Status(kv.seq)
+			if status == paxos.Decided {
+				if (kv.database[args.Me] == args.Id) {
+					reply.Err = OK
+					kv.mu.Unlock()
+					return nil
+				}
+				kv.database[args.Me] = args.Id
+				if (args.Op == "Put") {
+					kv.database[args.Key] = args.Value
+				} else {
+					kv.database[args.Key] += args.Value
+				}
+ 				reply.Err = OK
+				kv.seq += kv.step
+				kv.mu.Unlock()
+				return nil
+			}
+			time.Sleep(to)
+			if (to < 10 * time.Second) {
+				to *= 2
+			}
+		}
+	}
+	kv.mu.Unlock()
+	return errors.New("PutAppend error")
+}
 
-	return nil
+//Lab3_PartB
+func (kv *KVPaxos) GetServers(args *GetServersArgs, reply *GetServersReply) error {
+	if (args.Me == "") {
+		return errors.New("Empty source address")
+	} else {
+		reply.Servers = kv.servers
+		reply.Err = OK
+		return nil
+	}
 }
 
 // tell the server to shut itself down.
@@ -93,6 +171,15 @@ func StartServer(servers []string, me int) *KVPaxos {
 	kv.me = me
 
 	// Your initialization code here.
+	//Lab3_PartB
+	gob.Register(Proposal{})
+	gob.Register(paxos.Paxos{})
+	kv.servers = servers
+	kv.seq = kv.me
+	kv.step = len(servers)
+	kv.database = make(map[string]string)
+	kv.instance = make(map[int]interface{})
+
 
 	rpcs := rpc.NewServer()
 	rpcs.Register(kv)
