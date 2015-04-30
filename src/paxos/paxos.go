@@ -59,10 +59,11 @@ type Paxos struct {
 	// Your data here.
 	//Lab3_PartA
 	n_servers  int   //number of servers
-	database   map[int]interface{}
+	database   map[int]interface{} //db, in fact, like a log db
 	instance   map[int]*State
 	done       map[int]bool
 	Done_max   int
+	servers_done map[string]int    //servers that have done
 }
 
 //
@@ -144,10 +145,28 @@ type DecideArgs struct {
 	Num    int        //decide n
 	Val    interface{}//decide value, send to all
 	Done_max   int    //the Done number
+	//Lab3_PartB
+	Servers_Done map[string]int //servers done
 }
 type DecideReply struct {
 	Seq    int   //seq
 	OK     bool  //whether success
+}
+
+//Lab3_PartB
+type DoneArgs struct {
+	Seq       int
+}
+type DoneReply struct {
+	OK        bool
+}
+type UpdateDBArgs struct {
+	SeqMax    int //maxSeq
+	Server    string //server name
+}
+type UpdateDBReply struct {
+	Database  map[int]interface{} //db to update
+	OK        bool                //whether is ok
 }
 
 //Lab3_PartA
@@ -217,7 +236,7 @@ func (px *Paxos) Proposer(seq int, v interface{}){
 			
 			//recv accept ok from majority
 			if (n_accept_ok > px.n_servers/2) {
-				decargs := &DecideArgs{seq, n, v, px.Done_max}//v or v_h
+				decargs := &DecideArgs{seq, n, v, px.Done_max, px.servers_done}//v or v_h
 				var decreply DecideReply
 				for i3, v3 := range px.peers {
 					//sned decided(v') to all
@@ -347,7 +366,7 @@ func (px *Paxos) Accept(args *AcceptArgs, reply *AcceptReply) error {
 func (px *Paxos) self_decide(args *DecideArgs, reply *DecideReply) {
 	px.mu.Lock() 
 	seq, n, v, Done := args.Seq, args.Num, args.Val, args.Done_max
-	px.database[n] = v
+	px.database[seq] = v
 	_, ok := px.instance[seq]
 	if (ok == false) {
 		px.instance[seq] = &State{n, n, v, Decided}
@@ -358,6 +377,7 @@ func (px *Paxos) self_decide(args *DecideArgs, reply *DecideReply) {
 	if (Done < px.Done_max) {
 		px.Done_max = Done
 	}
+	px.servers_done = args.Servers_Done//Lab3_PartB
 	reply.Seq, reply.OK = args.Seq, true
 	//fmt.Println(reply)
 	px.mu.Unlock()
@@ -379,9 +399,51 @@ func (px *Paxos) Decide(args *DecideArgs, reply *DecideReply) error {
 	if (Done < px.Done_max) {
 		px.Done_max = Done
 	}
+	px.servers_done = args.Servers_Done//Lab3_PartB
 	reply.Seq, reply.OK = args.Seq, true
 	//fmt.Println(reply)
 	px.mu.Unlock()
+	return nil
+}
+
+//Lab3_PartB
+func (px *Paxos) RPCDone(args *DoneArgs, reply *DoneReply) error {
+	px.Done(args.Seq)
+	reply.OK = true
+	return nil
+}
+//Lab3_PartB
+func (px *Paxos) UpdateDB(args *UpdateDBArgs, reply *UpdateDBReply) error {
+	px.mu.Lock()
+	px.servers_done[args.Server] = args.SeqMax
+	//return
+	reply.Database, reply.OK = px.database, true
+	px.mu.Unlock()
+	cnt := len(px.servers_done)
+	if (cnt >= len(px.peers)) {
+		min := 99999999
+		for _, v := range px.servers_done {
+			if (v < min) {
+				min = v
+			}
+		}
+		done_args := &DoneArgs{min - len(px.peers)}
+		var done_reply DoneReply
+		for i, serv := range px.peers {
+			//fmt.Println(i, serv, px.me)
+			if (i == px.me) {
+				px.Done(min - len(px.peers))
+			} else {
+				for {
+					//fmt.Println(serv)
+					ok := call(serv, "Paxos.RPCDone", done_args, &done_reply)
+					if (ok == true) {
+						break
+					}
+				}
+			}		
+		}
+	}
 	return nil
 }
 
@@ -413,7 +475,7 @@ func (px *Paxos) Start(seq int, v interface{}) {
 func (px *Paxos) Done(seq int) {
 	// Your code here.
 	//Lab3_PartA
-	px.mu.Lock()
+	//px.mu.Lock()
 	/*fmt.Println(px.done)
 	for k, _ := range px.instance {
 		if (k <= seq) {
@@ -424,15 +486,16 @@ func (px *Paxos) Done(seq int) {
 	if (seq > px.Done_max) {
 		px.Done_max = seq
 	} else {
-		px.mu.Unlock()
+		//px.mu.Unlock()
 		return
 	}
 	for k, _ := range px.database {
 		if (k < seq) {
+			//fmt.Println("DELETE...")
 			delete(px.database, k)
 		}
 	}
-	px.mu.Unlock()
+	//px.mu.Unlock()
 }
 
 //
@@ -446,6 +509,7 @@ func (px *Paxos) Max() int {
 	px.mu.Lock()
 	if (len(px.instance) == 0) {
 		//instance is empty
+		px.mu.Unlock()
 		return px.Done_max + 1
 	}
 	max := -1
@@ -584,6 +648,7 @@ func Make(peers []string, me int, rpcs *rpc.Server) *Paxos {
 	px.n_servers = len(peers)
 	px.done = make(map[int]bool)
 	px.Done_max = -1
+	px.servers_done = make(map[string]int)
 
 	if rpcs != nil {
 		// caller will create socket &c

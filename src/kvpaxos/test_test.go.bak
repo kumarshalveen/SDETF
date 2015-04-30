@@ -7,8 +7,8 @@ import "os"
 import "time"
 import "fmt"
 import "math/rand"
-//import "strings"
-//import "sync/atomic"
+import "strings"
+import "sync/atomic"
 
 func check(t *testing.T, ck *Clerk, key string, value string) {
 	v := ck.Get(key)
@@ -55,11 +55,13 @@ func TestBasic(t *testing.T) {
 	for i := 0; i < nservers; i++ {
 		kva[i] = StartServer(kvh, i)
 	}
+
 	ck := MakeClerk(kvh)
 	var cka [nservers]*Clerk
 	for i := 0; i < nservers; i++ {
 		cka[i] = MakeClerk([]string{kvh[i]})
 	}
+
 	fmt.Printf("Test: Basic put/append/get ...\n")
 
 	ck.Append("app", "x")
@@ -104,7 +106,7 @@ func TestBasic(t *testing.T) {
 			if va[i] != va[0] {
 				t.Fatalf("mismatch")
 			}
-		}			
+		}
 	}
 
 	fmt.Printf("  ... Passed\n")
@@ -183,7 +185,7 @@ func TestDone(t *testing.T) {
 
 	fmt.Printf("  ... Passed\n")
 }
-/*
+
 func pp(tag string, src int, dst int) string {
 	s := "/var/tmp/824-"
 	s += strconv.Itoa(os.Getuid()) + "/"
@@ -707,4 +709,3 @@ func TestManyPartition(t *testing.T) {
 		fmt.Printf("  ... Passed\n")
 	}
 }
-*/

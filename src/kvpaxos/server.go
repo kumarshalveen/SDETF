@@ -15,6 +15,8 @@ import "math/rand"
 //Lab3_PartB
 import "errors"
 import "time"
+import "reflect"
+import "sort"
 
 const Debug = 0
 
@@ -45,8 +47,9 @@ type KVPaxos struct {
 	servers    []string//servers of paxos
 	seq        int     //the instance number
 	step       int     //the interval of seq increment
-	database   map[string]string //database
+	database   map[string]string   //database
 	instance   map[int]interface{} //instance
+	seqs       map[int]bool        //the instances done
 }
 
 
@@ -54,7 +57,9 @@ func (kv *KVPaxos) Get(args *GetArgs, reply *GetReply) error {
 	// Your code here.
 	//Lab3_PartB
 	kv.mu.Lock()
-	proposal := &Proposal{args.Me, args.Id}
+	kv.UpdateDB()
+	//proposal := &Proposal{args.Me, args.Id}
+	proposal := args
 	for {
 		kv.px.Start(kv.seq, proposal)//request
 		to := 10*time.Millisecond
@@ -86,26 +91,26 @@ func (kv *KVPaxos) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 	// Your code here.
 	//Lab3_PartB
 	kv.mu.Lock()
-	proposal := &Proposal{args.Me, args.Id}
+	if (kv.database[args.Me] == args.Id) {
+		reply.Err = OK
+		kv.mu.Unlock()
+		return nil
+	}
+	//proposal := &Proposal{args.Me, args.Id}
+	proposal := args
 	for {
+		//fmt.Println(kv.px.Max())
+		kv.seq = ((kv.px.Max() / 3 +1 )* 3) + kv.me 
 		kv.px.Start(kv.seq, proposal)
 		to := 10*time.Millisecond
 		for {
 			status, _ := kv.px.Status(kv.seq)
+			
 			if status == paxos.Decided {
-				if (kv.database[args.Me] == args.Id) {
-					reply.Err = OK
-					kv.mu.Unlock()
-					return nil
-				}
-				kv.database[args.Me] = args.Id
-				if (args.Op == "Put") {
-					kv.database[args.Key] = args.Value
-				} else {
-					kv.database[args.Key] += args.Value
-				}
- 				reply.Err = OK
+				//fmt.Println("PutAppend done")
+				reply.Err = OK
 				kv.seq += kv.step
+				kv.UpdateDB()
 				kv.mu.Unlock()
 				return nil
 			}
@@ -120,15 +125,58 @@ func (kv *KVPaxos) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 }
 
 //Lab3_PartB
-func (kv *KVPaxos) GetServers(args *GetServersArgs, reply *GetServersReply) error {
-	if (args.Me == "") {
-		return errors.New("Empty source address")
-	} else {
-		reply.Servers = kv.servers
-		reply.Err = OK
-		return nil
+func (kv *KVPaxos) UpdateDB() {
+	//time.Sleep(2*time.Second)
+	args := &paxos.UpdateDBArgs{kv.seq, kv.servers[kv.me]}
+	var reply paxos.UpdateDBReply
+	var tmp PutAppendArgs
+	for _, srv := range kv.servers {
+		ok := call(srv, "Paxos.UpdateDB", args, &reply)
+		if (ok == true) {
+			db := reply.Database
+			//in order to get a ordered map
+			keys := make([]int, len(db))
+			i := 0
+			for k, _ := range db {
+				keys[i] = k
+				i++
+			}
+			
+			sort.Ints(keys)
+			//fmt.Println(keys)
+			for _, seq := range keys {
+				v := db[seq]
+				if (kv.seqs[seq] == true) {
+ 					continue
+				}
+				//fmt.Println("type:",reflect.TypeOf(v))
+				if (reflect.TypeOf(v) == reflect.TypeOf(tmp)) {
+					tmp = v.(PutAppendArgs)
+					if (kv.database[tmp.Me] == tmp.Id) {
+						continue
+					}
+					if (tmp.Op == "Put") {
+						kv.database[tmp.Key] = tmp.Value
+					} else {
+						if (kv.database[tmp.Me] != tmp.Id) {
+							kv.database[tmp.Key] += tmp.Value
+						}
+					}
+					kv.database[tmp.Me] = tmp.Id
+				}
+				kv.seqs[seq] = true
+			}
+		}
 	}
+
+	return
 }
+
+
+//Lab3_PartB
+//func (kv *KVPaxos) tick() {
+//
+//}
 
 // tell the server to shut itself down.
 // please do not change these two functions.
@@ -174,11 +222,26 @@ func StartServer(servers []string, me int) *KVPaxos {
 	//Lab3_PartB
 	gob.Register(Proposal{})
 	gob.Register(paxos.Paxos{})
+	gob.Register(PutAppendArgs{})
+	gob.Register(GetArgs{})
+	gob.Register(paxos.UpdateDBArgs{})
+	gob.Register(paxos.UpdateDBReply{})
+	gob.Register(paxos.UpdateDBReply{})
 	kv.servers = servers
 	kv.seq = kv.me
 	kv.step = len(servers)
 	kv.database = make(map[string]string)
 	kv.instance = make(map[int]interface{})
+	kv.seqs = make(map[int]bool)
+
+	/*kick
+	go func(){
+		for {
+			time.Sleep(200*time.Millisecond)
+			kv.tick()
+		}
+	}()
+	*/
 
 
 	rpcs := rpc.NewServer()

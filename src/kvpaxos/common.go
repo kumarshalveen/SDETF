@@ -44,12 +44,3 @@ type Proposal struct{
 	Id    string //the op id the client send
 }
 
-//Lab3_PartB
-type GetServersArgs struct{
-	Me    string//client
-}
-type GetServersReply struct {
-	Servers    []string//servers
-	Err
-}
-

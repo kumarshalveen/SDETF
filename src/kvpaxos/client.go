@@ -26,7 +26,6 @@ func nrand() int64 {
 
 func MakeClerk(servers []string) *Clerk {
 	ck := new(Clerk)
-	fmt.Println(servers)
 	ck.servers = servers
 	// You'll have to add code here.
 	//Lab3_PartB
@@ -82,9 +81,7 @@ func (ck *Clerk) Get(key string) string {
 	var reply GetReply
 	for {
 		for _, v := range ck.servers {
-			//fmt.Println(v)
 			ok := call(v, "KVPaxos.Get", args, &reply)
-			fmt.Println(reply)
 			if (ok == true && reply.Err == OK) {
 				return reply.Value
 			//} else if (ok == true && reply.Err == ErrNoKey) {
@@ -107,10 +104,8 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	args := &PutAppendArgs{key, value, op, ck.me, op_id}
 	var reply PutAppendReply
 	for {
-		fmt.Println(args)
 		for _, v := range ck.servers {
 			ok := call (v, "KVPaxos.PutAppend", args, &reply)
-		fmt.Println(reply)
 			if (ok == true) {
 				return
 			} else {
