@@ -517,7 +517,7 @@ func TestUnreliable(t *testing.T) {
 	fmt.Printf("  ... Passed\n")
 
 	time.Sleep(1 * time.Second)
-}*/
+}
 
 func TestHole(t *testing.T) {
 	runtime.GOMAXPROCS(4)
@@ -589,14 +589,10 @@ func TestHole(t *testing.T) {
 		// can majority partition make progress even though
 		// minority servers were interrupted in the middle of
 		// paxos agreements?
-		fmt.Println("SSSSSSSSS")
 		check(t, ck2, "q", "q")
-		fmt.Println("SSSSSSSSS2")
 		ck2.Put("q", "qq")
-		fmt.Println("SSSSSSSSS3")
 		check(t, ck2, "q", "qq")
 
-		fmt.Println("SSSSSSSSS4")
 		// restore network, wait for all threads to exit.
 		part(t, tag, nservers, []int{0, 1, 2, 3, 4}, []int{}, []int{})
 		atomic.StoreInt32(&done, 1)
@@ -609,12 +605,13 @@ func TestHole(t *testing.T) {
 			t.Fatal("something is wrong")
 		}
 		check(t, ck2, "q", "qq")
-		fmt.Println("SSSSSSSSSSS", iters)
+		
 	}
 
 	fmt.Printf("  ... Passed\n")
 }
-/*
+*/
+
 func TestManyPartition(t *testing.T) {
 	runtime.GOMAXPROCS(4)
 
@@ -717,4 +714,4 @@ func TestManyPartition(t *testing.T) {
 		fmt.Printf("  ... Passed\n")
 	}
 }
-*/
+

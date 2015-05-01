@@ -225,7 +225,7 @@ func (px *Paxos) Proposer(seq int, v interface{}){
 						ok2 := call(v2, "Paxos.Accept", accargs, &accreply)
 						if (ok2 == false) {//retry, if net failed
 							//fmt.Println(accreply)
-							//break
+							break
 							continue
 			 			} else {
 			 				break
@@ -250,6 +250,9 @@ func (px *Paxos) Proposer(seq int, v interface{}){
 							if (ok3 == true) {//retry, if net failed
  								//fmt.Println(decreply)
 								break
+								//continue
+  							} else {
+  								break
   							}
   						}
   					}
@@ -272,7 +275,9 @@ func (px *Paxos) Proposer(seq int, v interface{}){
 				break
 			}
 			//fmt.Println(n_prepare_ok, n_accept_ok, px.n_servers)
-			if (to < 2*time.Second) {
+			//if (to < 100*time.Millisecond) {
+			if (to < 3*time.Second) {
+				//to *= 2
 				n++
 			} else {
 				break

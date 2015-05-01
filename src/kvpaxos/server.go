@@ -57,6 +57,7 @@ func (kv *KVPaxos) Get(args *GetArgs, reply *GetReply) error {
 	// Your code here.
 	//Lab3_PartB
 	kv.mu.Lock()
+	kv.UpdateDB("Get")
 	proposal := args
 	cnt := 1
 	step := len(kv.servers)
@@ -81,7 +82,8 @@ func (kv *KVPaxos) Get(args *GetArgs, reply *GetReply) error {
 				return nil
 			}
 			time.Sleep(to)
-			if (to < 2*time.Second) {
+			//if (to < 100*time.Millisecond) {
+			if (to < 4*time.Second) {
 				to *= 2
 			} else {
 				//fmt.Println(kv.database)
@@ -96,8 +98,8 @@ func (kv *KVPaxos) Get(args *GetArgs, reply *GetReply) error {
 				//}
 				//kv.seq += kv.step
 				//fmt.Println("get OK")
-				kv.mu.Unlock()
-				return nil
+				//kv.mu.Unlock()
+				//return nil
 
 				kv.mu.Unlock()
 				return errors.New("Get timeout")
@@ -143,8 +145,8 @@ func (kv *KVPaxos) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 			}
 			time.Sleep(to)
 			//break
-			//if (to < 100*time.Millisecond) {
-			if (to < 2*time.Second) {
+			//if (to < 200*time.Millisecond) {
+			if (to < 4*time.Second) {
 				to *= 2
 			} else {
 				//kv.UpdateDB("PutAppend")
@@ -154,7 +156,7 @@ func (kv *KVPaxos) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 				//fmt.Println("pa OK")
 				//kv.mu.Unlock()
 				//return nil
-
+				//fmt.Println(args, kv.database[args.Key], kv.seq, kv.px.Max())
 				kv.mu.Unlock()
 				return errors.New("PutAppend timeout")
 			}
