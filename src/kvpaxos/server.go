@@ -57,15 +57,17 @@ func (kv *KVPaxos) Get(args *GetArgs, reply *GetReply) error {
 	// Your code here.
 	//Lab3_PartB
 	kv.mu.Lock()
-	kv.UpdateDB()
-	//proposal := &Proposal{args.Me, args.Id}
 	proposal := args
+	cnt := 1
+	step := len(kv.servers)
 	for {
+		kv.seq = (kv.px.Max() / step +cnt )* step + kv.me
 		kv.px.Start(kv.seq, proposal)//request
 		to := 10*time.Millisecond
 		for {
 			status, _ := kv.px.Status(kv.seq)
 			if status == paxos.Decided {//have decided
+				kv.UpdateDB("Get")
 				val, ok := kv.database[args.Key]
 				if (ok == false) {//key doesnt exist
 					reply.Err = ErrNoKey
@@ -74,14 +76,34 @@ func (kv *KVPaxos) Get(args *GetArgs, reply *GetReply) error {
 					reply.Err = OK
 				}
 				kv.seq += kv.step
+				//fmt.Println("get OK")
 				kv.mu.Unlock()
 				return nil
 			}
 			time.Sleep(to)
-			if (to < 10*time.Second) {
+			if (to < 2*time.Second) {
 				to *= 2
+			} else {
+				//fmt.Println(kv.database)
+				//kv.UpdateDB("Get")
+				//kv.UpdateDB("Get")
+				//val, ok := kv.database[args.Key]
+				//if (ok == false) {//key doesnt exist
+				//	reply.Err = ErrNoKey
+				//} else {
+				//	reply.Value = val
+				//	reply.Err = OK
+				//}
+				//kv.seq += kv.step
+				//fmt.Println("get OK")
+				kv.mu.Unlock()
+				return nil
+
+				kv.mu.Unlock()
+				return errors.New("Get timeout")
 			}
 		}
+		//cnt++
 	}
 	kv.mu.Unlock()
 	return errors.New("Get error")
@@ -96,44 +118,69 @@ func (kv *KVPaxos) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 		kv.mu.Unlock()
 		return nil
 	}
-	//proposal := &Proposal{args.Me, args.Id}
 	proposal := args
+	cnt := 1
+	step := len(kv.servers)
 	for {
 		//fmt.Println(kv.px.Max())
-		kv.seq = ((kv.px.Max() / 3 +1 )* 3) + kv.me 
+		kv.seq = (kv.px.Max() / step +cnt )* step + kv.me
 		kv.px.Start(kv.seq, proposal)
 		to := 10*time.Millisecond
 		for {
 			status, _ := kv.px.Status(kv.seq)
-			
+			if status == paxos.Forgotten {
+				fmt.Println("Forgotten")
+				break
+			}
 			if status == paxos.Decided {
 				//fmt.Println("PutAppend done")
 				reply.Err = OK
 				kv.seq += kv.step
-				kv.UpdateDB()
+				kv.UpdateDB("PutAppend")
+				//fmt.Println("pa OK")
 				kv.mu.Unlock()
 				return nil
 			}
 			time.Sleep(to)
-			if (to < 10 * time.Second) {
+			//break
+			//if (to < 100*time.Millisecond) {
+			if (to < 2*time.Second) {
 				to *= 2
+			} else {
+				//kv.UpdateDB("PutAppend")
+				//reply.Err = OK
+				//kv.seq += kv.step
+				//kv.UpdateDB("PutAppend")
+				//fmt.Println("pa OK")
+				//kv.mu.Unlock()
+				//return nil
+
+				kv.mu.Unlock()
+				return errors.New("PutAppend timeout")
 			}
 		}
+		//cnt++
+		//break
 	}
 	kv.mu.Unlock()
 	return errors.New("PutAppend error")
 }
 
 //Lab3_PartB
-func (kv *KVPaxos) UpdateDB() {
+func (kv *KVPaxos) UpdateDB(op string) {
 	//time.Sleep(2*time.Second)
+	//kv.mu.Lock()
 	args := &paxos.UpdateDBArgs{kv.seq, kv.servers[kv.me]}
 	var reply paxos.UpdateDBReply
 	var tmp PutAppendArgs
-	for _, srv := range kv.servers {
+	srv := kv.servers[kv.me]
+	//fmt.Println(kv.servers)
+	//for _, srv := range kv.servers {
+	for {
 		ok := call(srv, "Paxos.UpdateDB", args, &reply)
 		if (ok == true) {
 			db := reply.Database
+			//fmt.Println(db)
 			//in order to get a ordered map
 			keys := make([]int, len(db))
 			i := 0
@@ -147,14 +194,14 @@ func (kv *KVPaxos) UpdateDB() {
 			for _, seq := range keys {
 				v := db[seq]
 				if (kv.seqs[seq] == true) {
- 					continue
+					continue
 				}
 				//fmt.Println("type:",reflect.TypeOf(v))
 				if (reflect.TypeOf(v) == reflect.TypeOf(tmp)) {
 					tmp = v.(PutAppendArgs)
-					if (kv.database[tmp.Me] == tmp.Id) {
-						continue
-					}
+					//if (kv.database[tmp.Me] == tmp.Id) {
+					//	continue
+					//}
 					if (tmp.Op == "Put") {
 						kv.database[tmp.Key] = tmp.Value
 					} else {
@@ -163,12 +210,17 @@ func (kv *KVPaxos) UpdateDB() {
 						}
 					}
 					kv.database[tmp.Me] = tmp.Id
+				} else {
+					//var t2 GetArgs
+					//t2 = v.(GetArgs)
+					//kv.database[t2.Me] = t2.Id
 				}
 				kv.seqs[seq] = true
 			}
+			break
 		}
 	}
-
+	//fmt.Println("TTT-",op)
 	return
 }
 
@@ -227,6 +279,7 @@ func StartServer(servers []string, me int) *KVPaxos {
 	gob.Register(paxos.UpdateDBArgs{})
 	gob.Register(paxos.UpdateDBReply{})
 	gob.Register(paxos.UpdateDBReply{})
+	gob.Register(paxos.State{})
 	kv.servers = servers
 	kv.seq = kv.me
 	kv.step = len(servers)

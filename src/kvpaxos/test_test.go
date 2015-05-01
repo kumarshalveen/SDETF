@@ -7,8 +7,8 @@ import "os"
 import "time"
 import "fmt"
 import "math/rand"
-//import "strings"
-//import "sync/atomic"
+import "strings"
+import "sync/atomic"
 
 func check(t *testing.T, ck *Clerk, key string, value string) {
 	v := ck.Get(key)
@@ -40,7 +40,7 @@ func cleanup(kva []*KVPaxos) {
 func NextValue(prev string, val string) string {
 	return prev + val
 }
-
+/*
 func TestBasic(t *testing.T) {
 	runtime.GOMAXPROCS(4)
 
@@ -183,7 +183,7 @@ func TestDone(t *testing.T) {
 
 	fmt.Printf("  ... Passed\n")
 }
-/*
+*/
 func pp(tag string, src int, dst int) string {
 	s := "/var/tmp/824-"
 	s += strconv.Itoa(os.Getuid()) + "/"
@@ -221,7 +221,7 @@ func part(t *testing.T, tag string, npaxos int, p1 []int, p2 []int, p3 []int) {
 		}
 	}
 }
-
+/*
 func TestPartition(t *testing.T) {
 	runtime.GOMAXPROCS(4)
 
@@ -308,10 +308,12 @@ func TestPartition(t *testing.T) {
 		t.Fatalf("Get in minority completed")
 	default:
 	}
-
+fmt.Println("SSSSSSSSS")
 	check(t, cka[4], "1", "15")
+fmt.Println("SSSSSSSSS2")
 	check(t, cka[0], "1", "15")
 
+fmt.Println("SSSSSSSSS3")
 	part(t, tag, nservers, []int{0, 1, 2}, []int{3, 4}, []int{})
 
 	select {
@@ -324,6 +326,7 @@ func TestPartition(t *testing.T) {
 
 	fmt.Printf("  ... Passed\n")
 }
+*/
 
 func randclerk(kvh []string) *Clerk {
 	sa := make([]string, len(kvh))
@@ -358,7 +361,7 @@ func checkAppends(t *testing.T, v string, counts []int) {
 		}
 	}
 }
-
+/*
 func TestUnreliable(t *testing.T) {
 	runtime.GOMAXPROCS(4)
 
@@ -406,6 +409,7 @@ func TestUnreliable(t *testing.T) {
 				defer func() { ca[me] <- ok }()
 				myck := randclerk(kvh)
 				key := strconv.Itoa(me)
+				
 				vv := myck.Get(key)
 				myck.Append(key, "0")
 				vv = NextValue(vv, "0")
@@ -414,6 +418,7 @@ func TestUnreliable(t *testing.T) {
 				myck.Append(key, "2")
 				vv = NextValue(vv, "2")
 				time.Sleep(100 * time.Millisecond)
+				fmt.Println("vv:",vv, "getkey:",myck.Get(key))
 				if myck.Get(key) != vv {
 					t.Fatalf("wrong value")
 				}
@@ -512,7 +517,7 @@ func TestUnreliable(t *testing.T) {
 	fmt.Printf("  ... Passed\n")
 
 	time.Sleep(1 * time.Second)
-}
+}*/
 
 func TestHole(t *testing.T) {
 	runtime.GOMAXPROCS(4)
@@ -584,10 +589,14 @@ func TestHole(t *testing.T) {
 		// can majority partition make progress even though
 		// minority servers were interrupted in the middle of
 		// paxos agreements?
+		fmt.Println("SSSSSSSSS")
 		check(t, ck2, "q", "q")
+		fmt.Println("SSSSSSSSS2")
 		ck2.Put("q", "qq")
+		fmt.Println("SSSSSSSSS3")
 		check(t, ck2, "q", "qq")
 
+		fmt.Println("SSSSSSSSS4")
 		// restore network, wait for all threads to exit.
 		part(t, tag, nservers, []int{0, 1, 2, 3, 4}, []int{}, []int{})
 		atomic.StoreInt32(&done, 1)
@@ -600,11 +609,12 @@ func TestHole(t *testing.T) {
 			t.Fatal("something is wrong")
 		}
 		check(t, ck2, "q", "qq")
+		fmt.Println("SSSSSSSSSSS", iters)
 	}
 
 	fmt.Printf("  ... Passed\n")
 }
-
+/*
 func TestManyPartition(t *testing.T) {
 	runtime.GOMAXPROCS(4)
 

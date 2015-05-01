@@ -80,14 +80,16 @@ func (ck *Clerk) Get(key string) string {
 	args := &GetArgs{key, ck.me, op_id}
 	var reply GetReply
 	for {
+		//fmt.Println(ck.servers)
 		for _, v := range ck.servers {
 			ok := call(v, "KVPaxos.Get", args, &reply)
 			if (ok == true && reply.Err == OK) {
 				return reply.Value
-			//} else if (ok == true && reply.Err == ErrNoKey) {
-			//	return ""
+			} else if (ok == true && reply.Err == ErrNoKey) {
+				time.Sleep(100*time.Millisecond)
+				return ""
 			} else {
-				time.Sleep(1000*time.Millisecond)
+				time.Sleep(100*time.Millisecond)
 			}
 		}
 	}
