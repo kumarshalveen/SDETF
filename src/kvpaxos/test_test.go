@@ -8,7 +8,7 @@ import "time"
 import "fmt"
 import "math/rand"
 import "strings"
-import "sync/atomic"
+//import "sync/atomic"
 
 func check(t *testing.T, ck *Clerk, key string, value string) {
 	v := ck.Get(key)
@@ -55,11 +55,13 @@ func TestBasic(t *testing.T) {
 	for i := 0; i < nservers; i++ {
 		kva[i] = StartServer(kvh, i)
 	}
+
 	ck := MakeClerk(kvh)
 	var cka [nservers]*Clerk
 	for i := 0; i < nservers; i++ {
 		cka[i] = MakeClerk([]string{kvh[i]})
 	}
+
 	fmt.Printf("Test: Basic put/append/get ...\n")
 
 	ck.Append("app", "x")
@@ -104,7 +106,7 @@ func TestBasic(t *testing.T) {
 			if va[i] != va[0] {
 				t.Fatalf("mismatch")
 			}
-		}			
+		}
 	}
 
 	fmt.Printf("  ... Passed\n")
@@ -183,7 +185,7 @@ func TestDone(t *testing.T) {
 
 	fmt.Printf("  ... Passed\n")
 }
-*/
+
 func pp(tag string, src int, dst int) string {
 	s := "/var/tmp/824-"
 	s += strconv.Itoa(os.Getuid()) + "/"
@@ -221,7 +223,7 @@ func part(t *testing.T, tag string, npaxos int, p1 []int, p2 []int, p3 []int) {
 		}
 	}
 }
-/*
+
 func TestPartition(t *testing.T) {
 	runtime.GOMAXPROCS(4)
 
@@ -308,12 +310,10 @@ func TestPartition(t *testing.T) {
 		t.Fatalf("Get in minority completed")
 	default:
 	}
-fmt.Println("SSSSSSSSS")
+
 	check(t, cka[4], "1", "15")
-fmt.Println("SSSSSSSSS2")
 	check(t, cka[0], "1", "15")
 
-fmt.Println("SSSSSSSSS3")
 	part(t, tag, nservers, []int{0, 1, 2}, []int{3, 4}, []int{})
 
 	select {
@@ -327,7 +327,6 @@ fmt.Println("SSSSSSSSS3")
 	fmt.Printf("  ... Passed\n")
 }
 */
-
 func randclerk(kvh []string) *Clerk {
 	sa := make([]string, len(kvh))
 	copy(sa, kvh)
@@ -361,7 +360,7 @@ func checkAppends(t *testing.T, v string, counts []int) {
 		}
 	}
 }
-/*
+
 func TestUnreliable(t *testing.T) {
 	runtime.GOMAXPROCS(4)
 
@@ -409,7 +408,6 @@ func TestUnreliable(t *testing.T) {
 				defer func() { ca[me] <- ok }()
 				myck := randclerk(kvh)
 				key := strconv.Itoa(me)
-				
 				vv := myck.Get(key)
 				myck.Append(key, "0")
 				vv = NextValue(vv, "0")
@@ -418,11 +416,12 @@ func TestUnreliable(t *testing.T) {
 				myck.Append(key, "2")
 				vv = NextValue(vv, "2")
 				time.Sleep(100 * time.Millisecond)
-				fmt.Println("vv:",vv, "getkey:",myck.Get(key))
 				if myck.Get(key) != vv {
+				fmt.Println("sssssssssssss:(",key,"):",vv, myck.Get(key))
 					t.Fatalf("wrong value")
 				}
 				if myck.Get(key) != vv {
+				fmt.Println("sssssssssssss:(",key,"):",vv, myck.Get(key))
 					t.Fatalf("wrong value")
 				}
 				ok = true
@@ -518,7 +517,7 @@ func TestUnreliable(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 }
-
+/*
 func TestHole(t *testing.T) {
 	runtime.GOMAXPROCS(4)
 
@@ -605,12 +604,10 @@ func TestHole(t *testing.T) {
 			t.Fatal("something is wrong")
 		}
 		check(t, ck2, "q", "qq")
-		
 	}
 
 	fmt.Printf("  ... Passed\n")
 }
-*/
 
 func TestManyPartition(t *testing.T) {
 	runtime.GOMAXPROCS(4)
@@ -714,4 +711,4 @@ func TestManyPartition(t *testing.T) {
 		fmt.Printf("  ... Passed\n")
 	}
 }
-
+*/

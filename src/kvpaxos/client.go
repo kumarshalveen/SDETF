@@ -83,11 +83,15 @@ func (ck *Clerk) Get(key string) string {
 		//fmt.Println(ck.servers)
 		for _, v := range ck.servers {
 			ok := call(v, "KVPaxos.Get", args, &reply)
-			if (ok == true && reply.Err == OK) {
-				return reply.Value
-			} else if (ok == true && reply.Err == ErrNoKey) {
-				time.Sleep(100*time.Millisecond)
-				return ""
+			if (ok == true) {
+				if (reply.Err == OK) {
+					return reply.Value
+				} else if (reply.Err == TimeOut) {
+					//fmt.Println(args)
+					//time.Sleep(10*time.Millisecond)
+				} else if (reply.Err == ErrNoKey) {
+					return ""
+				}
 			} else {
 				time.Sleep(100*time.Millisecond)
 			}
@@ -109,7 +113,12 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 		for _, v := range ck.servers {
 			ok := call (v, "KVPaxos.PutAppend", args, &reply)
 			if (ok == true) {
-				return
+				if (reply.Err == OK) {
+					return 
+				} else if (reply.Err == TimeOut) {
+					//fmt.Println(args)
+					//time.Sleep(10*time.Millisecond)
+				} 
 			} else {
 				time.Sleep(100*time.Millisecond)
 			}
