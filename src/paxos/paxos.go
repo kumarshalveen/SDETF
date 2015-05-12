@@ -333,27 +333,6 @@ func (px *Paxos) Decide(args *DecideArgs, reply *DecideReply) error {
 	return nil
 }
 
-func (px *Paxos) handle_decide_reply(reply *DecideReply) {
-	px.mu.Lock()
-	dones_max := reply.Dones_max
-	
-	// for i, v := range database {
-	// 	if (i <= px.dones_max[px.me]) {
-	// 		continue
-	// 	}
-	// 	_, ok := px.database[i]
-	// 	if (ok == false) {
-	// 		px.database[i] = v
-	// 	}
-	// }
-	for i, _ := range dones_max {
-		if (px.dones_max[i] < dones_max[i]) {
-			px.dones_max[i] = dones_max[i]
-		}
-	}
-	px.mu.Unlock()
-}
-
 func (px *Paxos) delete_logs() {
 	min := px.dones_max[px.me]
 	for _, v := range px.dones_max {
@@ -362,32 +341,15 @@ func (px *Paxos) delete_logs() {
 		}
 	}
 	//fmt.Println(px.dones_max)
-	for i, _ :=range px.database {
-		if (i <= px.dones_max[px.me]) {
-			//fmt.Println("deleting............................")
+	for i, ok :=range px.instance {
+		if (i <= min && ok.status == Decided) {
 			delete(px.database, i)
 			delete(px.instance, i)
-			//fmt.Println(px.me, i, px.Max())
 		}
 	}
 }
 
 //Lab3_PartB
-func (px *Paxos) GetSeq0(seq int) (Fate, interface{}) {
-	px.mu.Lock()
-	defer px.mu.Unlock()
-	stat, ok := px.instance[seq]
-	if (seq < px.Min()) {
-		return Forgotten, nil
-	}
-	if (ok == false) {
-		return Pending, nil
-	}
-	if (stat.status == Decided) {
-		return Decided, px.database[seq]
-	}
-	return Pending, nil
-}
 func (px *Paxos) GetSeq(seq int) (Fate, interface{}) {
 	min := px.Min()
 	if (seq < min) {
@@ -473,38 +435,19 @@ func (px *Paxos) Done(seq int) {
 	if (seq > px.dones_max[px.me]) {
 		px.dones_max[px.me] = seq
 	}
-	// if (seq > px.dones_max[px.me]) {
-	// 	px.dones_max[px.me] = seq
-	// //} else {
-	// 	//px.mu.Unlock()
-	// //	return
-	// }
-	// min := px.dones_max[px.me]
-	// for _, v := range px.dones_max {
-	// 	if (min > v) {
-	// 		min = v
-	// 	}
-	// }
-	// fmt.Println(px.dones_max, min)
-	// for i, _ := range px.database {
-	// 	if (i <= min) {
-	// 		delete(px.database, i)
-	// 		_, ok := px.database[i]
-	// 		fmt.Println(ok)
-	// 	}
-	// }
-	// for k, _ := range px.database {
-	// 	if (k < seq) {
-	// 		//fmt.Println("DELETE...")
-	// 		_, ok := px.instance[k]
-	// 		if (ok == true) {
-	// 			if (Decided == px.instance[k].status) {
-	// 				delete(px.database, k)
-	// 				delete(px.instance, k)
-	// 			}
-	// 		}
-	// 	}
-	// }
+	min := px.dones_max[px.me]
+	for _, v := range px.dones_max {
+		if (min > v) {
+			min = v
+		}
+	}
+	
+	for k, ok := range px.instance {
+		if (k <= min && ok.status == Decided) {
+			delete(px.database, k)
+			delete(px.instance, k)
+		}
+	}
 	//px.mu.Unlock()
 	return
 }
@@ -518,30 +461,23 @@ func (px *Paxos) Max() int {
 	// Your code here.
 	//Lab_PartA
 	//px.mu.Lock()
-	// if (len(px.database) == 0) {
-	// 	//instance is empty
-	// 	//px.mu.Unlock()
-	// 	if (px.dones_max[px.me] == -1) {
-	// 		return 0
-	// 	} else {
-	// 		return px.dones_max[px.me]
-	// 	}
-	// }
-	// max := -1
-	// for k, _ := range px.database {
-	// 	if (max < k) {
-	// 		max = k
-	// 	}
-	// }
-	// //px.mu.Unlock()
-	// return max
-	res := 0
-    for i, _ := range px.instance {
-        if i > res {
-            res = i
-        }
-    }
-	return res
+	if (len(px.database) == 0) {
+		//instance is empty
+		//px.mu.Unlock()
+		if (px.dones_max[px.me] == -1) {
+			return 0
+		} else {
+			return px.dones_max[px.me]
+		}
+	}
+	max := -1
+	for k, _ := range px.database {
+		if (max < k) {
+			max = k
+		}
+	}
+	//px.mu.Unlock()
+	return max
 	//return 0
 }
 
@@ -578,34 +514,14 @@ func (px *Paxos) Min() int {
 	//Lab3_PartA
 	px.mu.Lock()
 	defer px.mu.Unlock()
-	// min := px.dones_max[px.me]
-	// for _, v := range px.dones_max {
-	// 	if (min > v) {
-	// 		min = v
-	// 	}
-	// }
-	// // fmt.Println(px.dones_max, min)
-	// for i, _ :=range px.database {
-	// 	if (i <= px.dones_max[px.me]) {
-	// 		//fmt.Println("deleting............................")
-	// 		delete(px.database, i)
-	// 		delete(px.instance, i)
-	// 		//fmt.Println(px.me, i, px.Max())
-	// 	}
-	// }
 	min := px.dones_max[px.me]
-    for _, done := range px.dones_max {
-        if done < min {
-            min = done
-        }
-    }
-    for i, ins := range px.instance {
-        if i <= min && ins.status == Decided {
-            delete(px.instance, i)
-            delete(px.database, i)
-        }
-    }
+	for _, v := range px.dones_max {
+		if (min > v) {
+			min = v
+		}
+	}
 
+	px.delete_logs()
 	return min + 1
 	//return 0
 }
@@ -622,22 +538,24 @@ func (px *Paxos) Status(seq int) (Fate, interface{}) {
 	if (seq < px.Min()) {
 		return Forgotten, nil
 	}
+	//px.delete_logs()
+	
 	px.mu.Lock()
 	defer px.mu.Unlock()
-	// stat, ok := px.instance[seq]
-	// if (ok == false) {
-	// 	return Pending, nil
-	// }
-	// if (stat.status == Decided) {
-	// 	return Decided, nil
-	// }
-	// return Pending, nil
-	ins, ok := px.instance[seq]
-    if ok && ins.status == Decided {
-        return Decided, px.database[seq]
-    } else {
-        return Pending, nil
-    }
+	stat, ok := px.instance[seq]
+	if (ok == false) {
+		return Pending, nil
+	}
+	if (stat.status == Decided) {
+		return Decided, nil
+	}
+	return Pending, nil
+	// ins, ok := px.instance[seq]
+ //    if ok && ins.status == Decided {
+ //        return Decided, px.database[seq]
+ //    } else {
+ //        return Pending, nil
+ //    }
 }
 
 
