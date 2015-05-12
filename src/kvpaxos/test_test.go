@@ -8,7 +8,7 @@ import "time"
 import "fmt"
 import "math/rand"
 import "strings"
-//import "sync/atomic"
+import "sync/atomic"
 
 func check(t *testing.T, ck *Clerk, key string, value string) {
 	v := ck.Get(key)
@@ -40,7 +40,7 @@ func cleanup(kva []*KVPaxos) {
 func NextValue(prev string, val string) string {
 	return prev + val
 }
-/*
+
 func TestBasic(t *testing.T) {
 	runtime.GOMAXPROCS(4)
 
@@ -326,7 +326,7 @@ func TestPartition(t *testing.T) {
 
 	fmt.Printf("  ... Passed\n")
 }
-*/
+
 func randclerk(kvh []string) *Clerk {
 	sa := make([]string, len(kvh))
 	copy(sa, kvh)
@@ -417,11 +417,9 @@ func TestUnreliable(t *testing.T) {
 				vv = NextValue(vv, "2")
 				time.Sleep(100 * time.Millisecond)
 				if myck.Get(key) != vv {
-				fmt.Println("sssssssssssss:(",key,"):",vv, myck.Get(key))
 					t.Fatalf("wrong value")
 				}
 				if myck.Get(key) != vv {
-				fmt.Println("sssssssssssss:(",key,"):",vv, myck.Get(key))
 					t.Fatalf("wrong value")
 				}
 				ok = true
@@ -517,7 +515,7 @@ func TestUnreliable(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 }
-/*
+
 func TestHole(t *testing.T) {
 	runtime.GOMAXPROCS(4)
 
@@ -711,4 +709,3 @@ func TestManyPartition(t *testing.T) {
 		fmt.Printf("  ... Passed\n")
 	}
 }
-*/

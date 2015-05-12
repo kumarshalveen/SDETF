@@ -20,6 +20,7 @@ type PutAppendArgs struct {
 	//Lab3_PartB
 	Me    string //the id that stand for a uniq client
 	Id    string //the id that stand for a uniq op
+	Ts    int64
 }
 
 type PutAppendReply struct {
@@ -30,8 +31,10 @@ type GetArgs struct {
 	Key string
 	// You'll have to add definitions here.
 	//Lab3_PartB
+	Op    string //"Get"
 	Me    string //the id that stand for a uniq client
 	Id    string //the id that stand for a uniq op
+	Ts    int64
 }
 
 type GetReply struct {
@@ -39,9 +42,4 @@ type GetReply struct {
 	Value string
 }
 
-//Lab3_PartB
-type Proposal struct{
-	Me    string //the client who send a request
-	Id    string //the op id the client send
-}
 

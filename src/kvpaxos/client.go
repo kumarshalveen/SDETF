@@ -76,22 +76,24 @@ func call(srv string, rpcname string,
 func (ck *Clerk) Get(key string) string {
 	// You will have to modify this function.
 	//Lab3_PartB
-	op_id := strconv.FormatInt(nrand(), 10)
-	args := &GetArgs{key, ck.me, op_id}
+	//op_id := strconv.FormatInt(nrand(), 10)
+	ts := time.Now().UnixNano()
+	op_id := time.Now().String()
+	args := &GetArgs{key, "Get", ck.me, op_id, ts}
 	var reply GetReply
 	for {
 		//fmt.Println(ck.servers)
 		for _, v := range ck.servers {
 			ok := call(v, "KVPaxos.Get", args, &reply)
 			if (ok == true) {
-				if (reply.Err == OK) {
+				//if (reply.Err == OK) {
 					return reply.Value
-				} else if (reply.Err == TimeOut) {
-					//fmt.Println(args)
-					//time.Sleep(10*time.Millisecond)
-				} else if (reply.Err == ErrNoKey) {
-					return ""
-				}
+				// } else if (reply.Err == TimeOut) {
+				// 	//fmt.Println(args)
+				// 	//time.Sleep(10*time.Millisecond)
+				// } else if (reply.Err == ErrNoKey) {
+				// 	return ""
+				// }
 			} else {
 				time.Sleep(100*time.Millisecond)
 			}
@@ -106,19 +108,21 @@ func (ck *Clerk) Get(key string) string {
 func (ck *Clerk) PutAppend(key string, value string, op string) {
 	// You will have to modify this function.
 	//Lab3_PartB
-	op_id := strconv.FormatInt(nrand(), 10)
-	args := &PutAppendArgs{key, value, op, ck.me, op_id}
+	//op_id := strconv.FormatInt(nrand(), 10)
+	ts := time.Now().UnixNano()
+	op_id := time.Now().String()
+	args := &PutAppendArgs{key, value, op, ck.me, op_id, ts}
 	var reply PutAppendReply
 	for {
 		for _, v := range ck.servers {
 			ok := call (v, "KVPaxos.PutAppend", args, &reply)
 			if (ok == true) {
-				if (reply.Err == OK) {
+				//if (reply.Err == OK) {
 					return 
-				} else if (reply.Err == TimeOut) {
-					//fmt.Println(args)
-					//time.Sleep(10*time.Millisecond)
-				} 
+				// } else if (reply.Err == TimeOut) {
+				// 	//fmt.Println(args)
+				// 	//time.Sleep(10*time.Millisecond)
+				// } 
 			} else {
 				time.Sleep(100*time.Millisecond)
 			}

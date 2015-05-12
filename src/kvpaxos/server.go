@@ -13,10 +13,10 @@ import "encoding/gob"
 import "math/rand"
 
 //Lab3_PartB
-import "errors"
+//import "errors"
 import "time"
-import "reflect"
-import "sort"
+//import "reflect"
+//import "sort"
 
 const Debug = 0
 
@@ -32,6 +32,12 @@ type Op struct {
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
 	//Lan3_PartB
+	Key        string
+	Value      string
+	Op         string
+	Me         string
+	Id         string
+	Ts         int64
 
 }
 //Lab3_PartB bugs to be fixed
@@ -50,8 +56,9 @@ type KVPaxos struct {
 	seq        int     //the instance number
 	step       int     //the interval of seq increment
 	database   map[string]string   //database
-	logs       map[string]int     //logs
-	seqs       map[int]bool        //the instances done
+	logs       map[string]string   //logs
+	logs_time  map[string]int64    //the time logs
+	seqmap     map[int]bool        //seq map
 	seqmax     int
 	cnt        int     //if timeout cnt++;if ok cnt = 1
 }
@@ -61,258 +68,209 @@ func (kv *KVPaxos) Get(args *GetArgs, reply *GetReply) error {
 	// Your code here.
 	//Lab3_PartB
 	kv.mu.Lock()
-	kv.UpdateDB("Get")
-	// if (kv.database[args.Me] == args.Id) {
-	// 	val, ok := kv.database[args.Key]
-	// 	if (ok == false) {//key doesnt exist
-	// 		reply.Err = ErrNoKey
-	// 	} else {
-	// 		reply.Value = val
-	// 		reply.Err = OK
-	// 	}
-	// 	kv.mu.Unlock()
-	// 	return nil
-	// }
-	proposal := args
-	cnt := 1
-	step := len(kv.servers)
-	for {
-		kv.seq = (kv.px.Max() / step +cnt )* step + kv.me
-		kv.px.Start(kv.seq, proposal)//request
-		to := 10*time.Millisecond
-		for {
-			status, _ := kv.px.Status(kv.seq)
-			if status == paxos.Decided {//have decided
-				kv.UpdateDB("Get")
-				val, ok := kv.database[args.Key]
-				if (ok == false) {//key doesnt exist
-					kv.cnt = 1
-					reply.Err = ErrNoKey
-				} else {
-					reply.Value = val
-					reply.Err = OK
-					kv.cnt = 1
-				}
-				kv.seq += kv.step
-				kv.mu.Unlock()
-				return nil
-			}
-			time.Sleep(to)
-			//if (to < 300*time.Millisecond) {
-			if (to < 2*time.Second) {
-				to *= 2
-			} else {
-				kv.cnt++
-				reply.Err = TimeOut
-				kv.mu.Unlock()
-				return nil
-
-			}
-		}
-		//cnt++
+	defer kv.mu.Unlock()
+	
+	proposal := Op{args.Key, "Get", args.Op, args.Me, args.Id, args.Ts}
+	//proposal := Op{Key:args.Key, Op:"Get", Me:args.Me, Id:args.Id}//, time.Now().UnixNano()}
+	//cnt := 1
+	//step := len(kv.servers)
+	//kv.AddLog(proposal)
+	//reply.Value = kv.database[args.Key]
+	//return nil
+	
+	//may chu xian replicated seq number
+	//kv.px.Start(kv.seq, proposal)//request
+	//
+	kv.UpdateDB(proposal)
+	//fmt.Println(kv.px.GetDB())
+	value, ok := kv.database[args.Key]
+	if (ok == false) {
+		reply.Err = ErrNoKey
+	} else {
+		reply.Err = OK
+		reply.Value = value
 	}
-	kv.mu.Unlock()
-	return errors.New("Get error")
+	//fmt.Println(kv.px.GetDB())
+	//fmt.Println(kv.servers[kv.me], kv.database)
+	return nil
+	
 }
 
 func (kv *KVPaxos) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 	// Your code here.
 	//Lab3_PartB
 	kv.mu.Lock()
-	_, ok := kv.logs[args.Me + args.Id]
-	if (ok == false) {
-		step := len(kv.servers)
-		kv.seq = (kv.px.Max() / step +kv.cnt )* step + kv.me
-		kv.logs[args.Me + args.Id] = kv.seq
-	} else {
-		fmt.Println("AAAAAAAAAAAAAALLLLLLLLLLLLIIIIIIIINNNNNNNNNN")
-		to := 10*time.Millisecond
-		for {
-
-			status, _ := kv.px.Status(kv.logs[args.Me + args.Id])
-			if status == paxos.Forgotten {
-				fmt.Println("Forgotten")
-				break
-			}
-			if status == paxos.Decided {
-				//fmt.Println("PutAppend done")
-				reply.Err = OK
-				kv.cnt = 1
-				//delete(kv.logs, args.Me + args.Id)
-				kv.UpdateDB("PutAppend")
-				//fmt.Println("pa OK")
-				kv.mu.Unlock()
-				return nil
-			}
-			time.Sleep(to)
-			//break
-			//if (to < 100*time.Millisecond) {
-			if (to < 2*time.Second) {
-				to *= 2
-			} else {
-				kv.cnt++
-				reply.Err = TimeOut
-				delete(kv.logs, args.Me + args.Id)
-				kv.mu.Unlock()
-				return nil
-			}
-		}
-	}
+	defer kv.mu.Unlock()
 	//kv.UpdateDB("PutAppend")
-	if (kv.database[args.Me] == args.Id) {
-		reply.Err = OK
-		kv.mu.Unlock()
-		return nil
-	}
-	proposal := args
+	// if (kv.logs[args.Me+args.Op] == args.Id) {
+	// 	reply.Err = OK
+	// 	kv.mu.Unlock()
+	// 	return nil
+	// }
+	proposal := Op{args.Key, args.Value, args.Op, args.Me, args.Id, args.Ts}
+	//proposal := Op{Key:args.Key, Value:args.Value, Op:args.Op, Me:args.Me, Id:args.Id}//, time.Now().UnixNano()}
+	//kv.px.Start(kv.seq, proposal)//request
+	//kv.seq++
+	//kv.AddLog(proposal)
+	//reply.Value = kv.database[kv.Key]
+	//return nil
+	kv.UpdateDB(proposal)
+	to := 100*time.Millisecond
+	time.Sleep(to)
+	// for {
+	// 	time.Sleep(to)
+	// 	db := kv.px.GetDB()
+	// 	flag := false
+	// 	for i, _ := range db {
+	// 		v := db[i].(Op)
+	// 		if (v.Id == proposal.Id) {
+	// 			flag = true
+	// 		}
+	// 	}
+	// 	if (flag == true) {
+	// 		//fmt.Println("OOOOOOKKKKKKKKKK", proposal, kv.px.GetDB())
+	// 		break
+	// 	} else {
+	// 		if (to < 10*time.Second) {
+	// 		//if (to < 100*time.Millisecond) {
+	// 			to *= 2
+	// 		} else {
+	// 			//fmt.Println("SSSSSSSSSSS:", proposal)
+	// 			go kv.UpdateDB(proposal)//retry
+	// 			to = 10*time.Millisecond
+	// 		}
+	// 	}
+	// }
+	reply.Err = OK
+	return nil
 	
-	for {
-		//fmt.Println(kv.px.Max())
-		//kv.seq = (kv.px.Max() / step +kv.cnt )* step + kv.me
-		kv.px.Start(kv.seq, proposal)
-		to := 10*time.Millisecond
-		for {
-			status, _ := kv.px.Status(kv.seq)
-			if status == paxos.Forgotten {
-				fmt.Println("Forgotten")
-				break
-			}
-			if status == paxos.Decided {
-				//fmt.Println("PutAppend done")
-				reply.Err = OK
-				kv.cnt = 1
-				//delete(kv.logs, args.Me + args.Id)
-				kv.UpdateDB("PutAppend")
-				//fmt.Println("pa OK")
-				kv.mu.Unlock()
-				return nil
-			}
-			time.Sleep(to)
-			//break
-			//if (to < 100*time.Millisecond) {
-			if (to < 2*time.Second) {
-				to *= 2
-			} else {
-				kv.cnt++
-				reply.Err = TimeOut
-				delete(kv.logs, args.Me + args.Id)
-				kv.mu.Unlock()
-				return nil
-			}
-		}
-		//cnt++
-		//break
-	}
-	kv.mu.Unlock()
-	return errors.New("PutAppend error")
 }
 
 //Lab3_PartB
-func (kv *KVPaxos) UpdateDB(op string) {
+func (kv *KVPaxos) UpdateDB(now Op) {
+	ts, in := kv.logs_time[now.Me + now.Op]
+	if (in == true && ts >= now.Ts) {
+		return
+	}
 	//time.Sleep(2*time.Second)
 	//kv.mu.Lock()
-	args := &paxos.UpdateDBArgs{kv.seq, kv.servers[kv.me]}
-	var reply paxos.UpdateDBReply
-	var tmp PutAppendArgs
-	//srv := kv.servers[kv.me]
-	//to uniq the srvs
-	srvmap := make(map[string]bool)
-	for _, srv_i := range kv.servers {
-		srvmap[srv_i] = true
-	}
-	//fmt.Println(kv.servers)
-	for srv, _ := range srvmap {
-	//for _, srv := range kv.servers {
+	//for i:=kv.seq; i <= kv.px.Max(); i++ {//this doesnt work
+	flag := false
+	// db := kv.px.GetDB()
+	// for i, v := range db {
+	// 	act := v.(Op)
+	// 	if (kv.seqmap[i] == true) {
+	// 		break
+	// 	}
+	// 	if (act.Op == "Put") {
+	// 		if (kv.logs_time[act.Op] < act.Ts) {
+	// 			kv.database[act.Key] = act.Value
+	// 		}
+	// 	}
+	// 	if (act.Op == "Append") {
+	// 		if (kv.logs[act.Me] != act.Id) {
+	// 			if (kv.logs_time[act.Op] < act.Ts) {
+	// 				kv.database[act.Key] += act.Value
+	// 			}
+	// 		}
+	// 	}
+	// 	kv.logs[act.Me] = act.Id
+	// 	kv.logs_time[act.Op] = act.Ts
+	// 	kv.seqmap[i] = true
+	// 	// if (kv.seq < i) {
+	// 	// 	kv.seq = i
+	// 	// }
+	// }
+	//fmt.Println(kv.seqmap)
+	//for i:=kv.seq; i <= kv.px.Max()+1; i++ {
+	for {
+		i := kv.seq+1
+		kv.px.Start(i, now)
+		to := 10*time.Millisecond
 		for {
-			ok := call(srv, "Paxos.UpdateDB", args, &reply)
-			if (ok == true) {
-				db := reply.Database
-				//remove replicate (kv.database and db)
-				for ke, va := range db {
-					if (reflect.TypeOf(va) == reflect.TypeOf(tmp)) {
-						tmp = va.(PutAppendArgs)
-						if (kv.database[tmp.Me] == tmp.Id) {
-							delete(db, ke)
-						}
+			stat, proposal := kv.px.GetSeq(i)
+			//flag := false
+			if (stat == paxos.Decided) {
+				if (proposal == nil) {
+					continue
+				} else {
+					act := proposal.(Op)
+					//fmt.Println("SSS",i, kv.px.Max(), act, kv.servers[kv.me])//Test: Concurrent clients 
+					//fmt.Println("SSS",kv.px.GetDB())//Test: Concurrent clients 
+					if (kv.seqmap[i] == true) {
+						break
 					}
-				}
-				//log replicate (db self)
-				tdb := make(map[string]string)
-				for _, va2 := range db {
-					if (reflect.TypeOf(va2) == reflect.TypeOf(tmp)) {
-						tmp = va2.(PutAppendArgs)
-						_, ok2 := tdb[tmp.Me]
-						if (ok2 == false) {
-							tdb[tmp.Me] = tmp.Id
-						}
+					if (kv.logs[act.Key] == act.Id) {
+						break
 					}
-				}
-				
-				//in order to get a ordered map
-				keys := make([]int, len(db))
-				i := 0
-				for k, _ := range db {
-					keys[i] = k
-					i++
-				}
-				
-				sort.Ints(keys)
-				//fmt.Println(keys)
-
-				for _, seq := range keys {
-					// if (seq > kv.seqmax) {
-					// 	kv.seqmax = seq
-					// } else {
-					// 	continue
+					// if (kv.logs2[act.Me + act.Id] == true) {
+					// 	break
 					// }
-					v := db[seq]
-					if (kv.seqs[seq] == true) {
-						continue
+					if (i == 3) {
+						//fmt.Println("33333:",i, kv.seqmap,kv.servers[kv.me], now)
 					}
-					//fmt.Println("type:",reflect.TypeOf(v))
-					if (reflect.TypeOf(v) == reflect.TypeOf(tmp)) {
-						tmp = v.(PutAppendArgs)
-						// if (tdb[tmp.Me] == tmp.Id) {
-						// 	delete(tdb, tmp.Me)
-						// } else {
-						// 	continue
-						// }
-
-						fmt.Println(seq, db[seq])
-						// if (kv.database[tmp.Me] == tmp.Id) {
-						// 	continue
-						// }
-						if (tmp.Op == "Put") {
-							kv.database[tmp.Key] = tmp.Value
+					if (act.Op == "Put") {
+						tmp2, in2 := kv.logs_time[act.Me + act.Op]
+						if (in2 == false) {
+							kv.database[act.Key] = act.Value
 						} else {
-							if (kv.database[tmp.Me] != tmp.Id) {
-								kv.database[tmp.Key] += tmp.Value
+							if (tmp2 < act.Ts) {
+								kv.database[act.Key] = act.Value
 							}
 						}
-						kv.database[tmp.Me] = tmp.Id
+					} else if (act.Op == "Append") {
+						if (kv.logs[act.Me] != act.Id) {
+							tmp2, in2 := kv.logs_time[act.Me + act.Op]
+							if (in2 == false) {
+								kv.database[act.Key] += act.Value
+							} else {
+								if (tmp2 < act.Ts) {
+									kv.database[act.Key] += act.Value
+								}
+							}
+						}
 					} else {
-						//var t2 GetArgs
-						//t2 = v.(GetArgs)
-						//kv.database[t2.Me] = t2.Id
+						//break
 					}
-					kv.seqs[seq] = true
+					//kv.px.AddDone(i, kv.me)
+					kv.px.Done(i)
+					kv.logs[act.Me] = act.Id
+					kv.logs_time[act.Me + act.Op] = act.Ts
+					kv.seqmap[i] = true
+					if (act.Id == now.Id) {
+						//kv.seq = i
+						//kv.mu.Unlock()
+						flag = true 
+					}
 				}
 				break
-			} else {
-				time.Sleep(5*time.Millisecond)
-				//break
 			}
-
+			time.Sleep(to)
+			if (to < 10*time.Second) {
+			//if (to < 100*time.Millisecond) {
+				to *= 2
+				// now.Ts = time.Now().String()
+				// kv.px.Start(kv.px.Max()+1, now)
+			} else {
+				// now.Ts = time.Now().String()
+				// fmt.Println("SSSSSS",now)
+				// kv.px.Start(kv.px.Max()+1, now)
+				break
+			}
+		}
+		kv.seq = i
+		if (flag == true) {
+			return
 		}
 	}
+	
+	
+	//kv.mu.Unlock()
 	return
+
 }
 
 
-//Lab3_PartB
-//func (kv *KVPaxos) tick() {
-//
-//}
 
 // tell the server to shut itself down.
 // please do not change these two functions.
@@ -356,20 +314,19 @@ func StartServer(servers []string, me int) *KVPaxos {
 
 	// Your initialization code here.
 	//Lab3_PartB
-	gob.Register(Proposal{})
-	gob.Register(paxos.Paxos{})
-	gob.Register(PutAppendArgs{})
-	gob.Register(GetArgs{})
-	gob.Register(paxos.UpdateDBArgs{})
-	gob.Register(paxos.UpdateDBReply{})
-	gob.Register(paxos.UpdateDBReply{})
-	gob.Register(paxos.State{})
+	// gob.Register(Proposal{})
+	// gob.Register(paxos.Paxos{})
+	// gob.Register(PutAppendArgs{})
+	// gob.Register(GetArgs{})
+	// //gob.Register(paxos.State{})
+	// gob.Register(Op{})
 	kv.servers = servers
-	kv.seq = kv.me
+	kv.seq = 0//kv.me
 	kv.step = len(servers)
 	kv.database = make(map[string]string)
-	kv.logs = make(map[string]int)
-	kv.seqs = make(map[int]bool)
+	kv.logs = make(map[string]string)
+	kv.logs_time = make(map[string]int64)
+	kv.seqmap = make(map[int]bool)
 	kv.seqmax = -1
 	kv.cnt = 1
 
