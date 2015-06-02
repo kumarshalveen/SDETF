@@ -232,7 +232,6 @@ func TestBasic(t *testing.T) {
 	for i := 0; i < npara; i++ {
 		<-ca[i]
 	}
-	fmt.Println(gids, ck.Query(-1))
 	check(t, gids, ck)
 
 	fmt.Printf("  ... Passed\n")
