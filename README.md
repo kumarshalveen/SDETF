@@ -23,3 +23,21 @@ Part B
 cd src/pbservice
 export GOPATH=$(pwd)/../../
 go test
+
+
+Lab3
+Part A
+cd src/paxos
+go test
+
+PartB
+cd src/kvpaxos
+export GOPATH=$(pwd)/../../
+go test
+
+
+Lab4
+Part A
+cd src/shardmaster
+export GOPATH=$(pwd)/../../
+go test

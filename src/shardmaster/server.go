@@ -13,6 +13,9 @@ import "syscall"
 import "encoding/gob"
 import "math/rand"
 
+//Lab4_PartA
+import "time"
+
 type ShardMaster struct {
 	mu         sync.Mutex
 	l          net.Listener
@@ -22,37 +25,244 @@ type ShardMaster struct {
 	px         *paxos.Paxos
 
 	configs []Config // indexed by config num
+
+	//Lab4_PartA
+	seq        int   // max seq number
+	index      int   // max index of the configs
+	max_ts     int64 // max timestamp
+	id         map[int64]bool //map
 }
 
 
 type Op struct {
 	// Your data here.
+	//Lab4_PartA
+	Op         string   // Operation type
+	Shard      int      // Shard
+	GID        int64    // group id
+	Servers    []string // servers
+	Ts         int64    // timestamp
+	Num        int      // the config num
 }
 
+//Lab4_PartA
+func (sm *ShardMaster) BalanceShardsAfterJoin (config *Config, gid int64, op Op) {
+	divide_min := NShards / len(config.Groups)
+    count := map[int64]int{}
+    
+    //count each gid
+    for _, g := range config.Shards {
+        count[g]++
+    }
+
+    move_cnt := 0
+    for i, g := range config.Shards {
+        if (move_cnt < divide_min && count[g] > divide_min && g != gid) {
+            move_cnt++
+            config.Shards[i] = gid
+            count[g]--
+        }
+    }
+}
+
+//Lab4_PartA
+func (sm *ShardMaster) BalanceShardsAfterLeave (config *Config, gid int64, op Op) {
+	//fmt.Println("Leaving:", config)
+	//fmt.Println("Op:", op)
+	divide_min := NShards / len(config.Groups)
+    count := map[int64]int{}
+
+    //count each gid
+    for _, g := range config.Shards {
+    	count[g]++
+    }
+    //fmt.Println(count)
+
+    for gi, _ := range config.Groups {
+    	for (count[gi] < divide_min && count[gid] > 0) {
+    		for i, g := range config.Shards {
+    			if (g == gid) {
+    				config.Shards[i] = gi
+    				count[gi]++
+    				count[gid]--
+    				break
+    			}
+    		}
+    	}
+    }
+    for gi, _ := range config.Groups {
+    	for (count[gi] == divide_min && count[gid] > 0) {
+    		for i, g := range config.Shards {
+    			if (g == gid) {
+    				config.Shards[i] = gi
+    				count[gi]++
+    				count[gid]--
+    				break
+    			}
+    		}
+    	}
+    }
+}
+
+//Lab4_PartA
+func (sm *ShardMaster) ProcOperation (op Op) {
+	//generate a new config
+	config := sm.configs[sm.index]
+	config.Num = sm.index + 1
+	config.Shards = [NShards]int64{}
+	for i, g := range sm.configs[sm.index].Shards {
+		config.Shards[i] = g
+	}
+	config.Groups = map[int64][]string{}
+	for g, s := range sm.configs[sm.index].Groups {
+		config.Groups[g] = s
+	}
+	sm.configs = append(sm.configs, config)
+	sm.index++
+
+	//process a operation
+	switch op.Op {
+	case "Join":
+		_, exist := sm.configs[sm.index].Groups[op.GID]
+		if (exist == true) {
+			return
+		}
+		sm.configs[sm.index].Groups[op.GID] = op.Servers
+		//load balance
+		if (len(sm.configs[sm.index].Groups) > 1) {
+			sm.BalanceShardsAfterJoin(&sm.configs[sm.index], op.GID, op)
+		} else if (len(sm.configs[sm.index].Groups) == 1) {
+			for i:= 0; i < NShards; i++ {
+				sm.configs[sm.index].Shards[i] = op.GID
+			}
+		}
+		break
+	case "Leave":
+		_, exist := sm.configs[sm.index].Groups[op.GID]
+		if (exist == false) {
+			return
+		}
+		delete(sm.configs[sm.index].Groups, op.GID)
+		if (len(sm.configs[sm.index].Groups) > 0) {
+			sm.BalanceShardsAfterLeave(&sm.configs[sm.index], op.GID, op)
+		} else if (len(sm.configs[sm.index].Groups) == 0) {
+			for i:= 0; i < NShards; i++ {
+				sm.configs[sm.index].Shards[i] = 0
+			}
+		}
+		break
+	case "Move":
+		if (sm.configs[sm.index].Shards[op.Shard] == op.GID) {
+			return
+		} else {
+			sm.configs[sm.index].Shards[op.Shard] = op.GID
+		}
+		break
+	}
+	
+}
+
+//Lab4_PartA
+func (sm *ShardMaster) UpdateDB(proposal Op) {
+	for {
+		sm.seq++
+		sm.px.Start(sm.seq, proposal)
+		to := 10 * time.Millisecond
+		Act := Op{}
+		//get a act log
+		for {
+			stat, act := sm.px.GetSeq(sm.seq)
+			if (stat == paxos.Decided) {
+				Act = act.(Op)
+				break
+			}
+			time.Sleep(to)
+			if (to < 10*time.Second) {
+				to *= 2
+			} 
+		}
+		if (Act.Op != "Query") {
+			_, exist := sm.id[Act.Ts]
+			if (exist == false) {
+				sm.ProcOperation(Act)
+			}
+			
+		}
+		sm.id[Act.Ts] = true
+		sm.px.Done(sm.seq)
+		if (Act.Ts == proposal.Ts) {
+			return
+		}
+	}
+}
 
 func (sm *ShardMaster) Join(args *JoinArgs, reply *JoinReply) error {
 	// Your code here.
+	//Lab4_PartA
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	//ts := time.Now().UnixNano()
+	ts := rand.Int63()
+	proposal := Op{Op:"Join", GID:args.GID, Servers:args.Servers, Ts:ts}
+	//update db
+	sm.UpdateDB(proposal)
+	//time.Sleep(200*time.Millisecond)
 
 	return nil
 }
 
 func (sm *ShardMaster) Leave(args *LeaveArgs, reply *LeaveReply) error {
 	// Your code here.
+	//Lab4_PartA
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	//ts := time.Now().UnixNano()
+	ts := rand.Int63()
+	proposal := Op{Op:"Leave", GID:args.GID, Ts:ts}
+	//update db
+	sm.UpdateDB(proposal)
+	//time.Sleep(200*time.Millisecond)
 
 	return nil
 }
 
 func (sm *ShardMaster) Move(args *MoveArgs, reply *MoveReply) error {
 	// Your code here.
+	//Lab4_PartA
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	//ts := time.Now().UnixNano()
+	ts := rand.Int63()
+	proposal := Op{Op:"Move", Shard:args.Shard, GID:args.GID, Ts:ts}
+	//update db
+	sm.UpdateDB(proposal)
+	//time.Sleep(200*time.Millisecond)
 
 	return nil
 }
 
 func (sm *ShardMaster) Query(args *QueryArgs, reply *QueryReply) error {
 	// Your code here.
+	//Lab4_PartA
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	//ts := time.Now().UnixNano()
+	ts := rand.Int63()
+	proposal := Op{Op:"Query", Num:args.Num, Ts:ts}
+	//update db
+	sm.UpdateDB(proposal)
+	//time.Sleep(200*time.Millisecond)
+
+	//get the config
+	if (args.Num == -1 || args.Num > sm.index) {
+		reply.Config = sm.configs[sm.index]
+	} else {
+		reply.Config = sm.configs[args.Num]
+	}
 
 	return nil
 }
+
 
 // please don't change these two functions.
 func (sm *ShardMaster) Kill() {
@@ -90,6 +300,11 @@ func StartServer(servers []string, me int) *ShardMaster {
 
 	sm.configs = make([]Config, 1)
 	sm.configs[0].Groups = map[int64][]string{}
+	//Lab4_PartA
+	sm.index = 0
+	sm.seq = 0
+	sm.max_ts = 0
+	sm.id = make(map[int64]bool)
 
 	rpcs := rpc.NewServer()
 
