@@ -27,6 +27,12 @@ func DPrintf(format string, a ...interface{}) (n int, err error) {
 
 type Op struct {
 	// Your definitions here.
+	//Lab4_PartB
+	Op        string   // "Put", "Append" or "Get"
+	Key       string
+	Value     string
+	Me        string
+	Ts        int64
 }
 
 

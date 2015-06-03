@@ -13,6 +13,8 @@ type Clerk struct {
 	sm     *shardmaster.Clerk
 	config shardmaster.Config
 	// You'll have to modify Clerk.
+	//Lab4_PartB
+	Me     string     //the client id
 }
 
 func nrand() int64 {
@@ -26,6 +28,9 @@ func MakeClerk(shardmasters []string) *Clerk {
 	ck := new(Clerk)
 	ck.sm = shardmaster.MakeClerk(shardmasters)
 	// You'll have to modify MakeClerk.
+	//Lab4_PartB
+	ck.Me = strconv.FormatInt(nrand(), 10)
+
 	return ck
 }
 
@@ -96,9 +101,14 @@ func (ck *Clerk) Get(key string) string {
 		servers, ok := ck.config.Groups[gid]
 
 		if ok {
+			//Lab4_PartB
+			ts := time.Now().UnixNano()
+
 			// try each server in the shard's replication group.
 			for _, srv := range servers {
-				args := &GetArgs{}
+				//Lab4_PartB
+				args := &GetArgs{key, "Get", ck.Me, ts}
+				//args := &GetArgs{}
 				args.Key = key
 				var reply GetReply
 				ok := call(srv, "ShardKV.Get", args, &reply)
@@ -134,12 +144,17 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 		servers, ok := ck.config.Groups[gid]
 
 		if ok {
+			//Lab4_PartB
+			ts := time.Now().UnixNano()
+
 			// try each server in the shard's replication group.
 			for _, srv := range servers {
-				args := &PutAppendArgs{}
-				args.Key = key
-				args.Value = value
-				args.Op = op
+				//Lab4_PartB
+				args := &PutAppendArgs{key, value, op, ck.Me, ts, ck.config.index}
+				//args := &PutAppendArgs{}
+				// args.Key = key
+				// args.Value = value
+				// args.Op = op
 				var reply PutAppendReply
 				ok := call(srv, "ShardKV.PutAppend", args, &reply)
 				if ok && reply.Err == OK {
