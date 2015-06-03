@@ -48,6 +48,10 @@ type ShardKV struct {
 	gid int64 // my replica group ID
 
 	// Your definitions here.
+	//Lab4_PartB
+	database   map[string]string   //database
+	config     shardmaster.Config  //config
+	index      int                 //index of the config
 }
 
 
@@ -62,11 +66,44 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 	return nil
 }
 
+
+//Lab4_PartB
+func exist(arr []int64, e int64) {
+	for _, v := range arr {
+		if (v == e) {
+			return true
+		}
+	}
+	return false
+}
+
 //
 // Ask the shardmaster if there's a new configuration;
 // if so, re-configure.
 //
 func (kv *ShardKV) tick() {
+	//Lab4_PartB
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+	new_config := kv.sm.Query(-1)
+	new_index := new_config.Num
+	if (kv.index >= new_index) {
+		return
+	}
+
+	// update config and get the new shards' databases 
+	kv.index++
+	for kv.index < new_index {
+		config := kv.sm.Query(kv.index)
+		for new_shard, new_group := range config.Groups {
+			if (exist(kv.config.Shards, new_shard) == false) {
+				args := &GetShardDatabaseArgs(new_shard)
+				reply := GetShardDatabaseReply{}
+				for _
+
+			}
+		}
+	}
 }
 
 // tell the server to shut itself down.
@@ -114,6 +151,10 @@ func StartServer(gid int64, shardmasters []string,
 
 	// Your initialization code here.
 	// Don't call Join().
+	//Lab4_PartB
+	kv.database = make(map[string]string{})
+	kv.config = shardmaster.Config{}
+	kv.index = 0
 
 	rpcs := rpc.NewServer()
 	rpcs.Register(kv)

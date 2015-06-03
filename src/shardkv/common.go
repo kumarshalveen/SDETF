@@ -53,11 +53,14 @@ type GetReply struct {
 }
 
 //Lab4_PartB
-type MoveArgs struct {
+type GetShardDatabaseArgs struct {
+	Shard   int64 //the shard
 
 }
 
 //Lab4_PartB
-type  MoveReply struct {
-	
+type  GetShardDatabaseReply struct {
+	Err      Err                // error info
+	Database map[string]string  //the dataabse
+
 }
