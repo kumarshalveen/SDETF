@@ -42,9 +42,10 @@ type GetArgs struct {
 	// You'll have to add definitions here.
 	
 	//Lab4_PartA
-	Op  string  // "Get"
-	Me  string  // identidy the client
-	Ts  int64   // the operateion's timestamp
+	Op    string  // "Get"
+	Me    string  // identidy the client
+	Ts    int64   // the operateion's timestamp
+	Index int     // the index of the config
 }
 
 type GetReply struct {
@@ -54,7 +55,7 @@ type GetReply struct {
 
 //Lab4_PartB
 type GetShardDatabaseArgs struct {
-	Shard   int64 //the shard
+	GID   int64 //the group id
 
 }
 

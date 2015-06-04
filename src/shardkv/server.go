@@ -28,11 +28,12 @@ func DPrintf(format string, a ...interface{}) (n int, err error) {
 type Op struct {
 	// Your definitions here.
 	//Lab4_PartB
+	Key       string   // key
+	Value     string   // value
 	Op        string   // "Put", "Append" or "Get"
-	Key       string
-	Value     string
-	Me        string
-	Ts        int64
+	Me        string   // the id of the client
+	Ts        int64    // the timestamp of a operation
+	Index     int      // the index of the config
 }
 
 
@@ -52,29 +53,111 @@ type ShardKV struct {
 	database   map[string]string   //database
 	config     shardmaster.Config  //config
 	index      int                 //index of the config
+	seq        int                 //max seq numvber
 }
 
 
 func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) error {
 	// Your code here.
+	//Lab4_PartB
+	kv.index = kv.Config.Num
+	if (args.Num > kv.index) {
+		reply.Err = ErrIndex
+		return nil
+	}
+	shard := key2shard(args.Key)
+	if (shard != kv.gid) {
+		reply.Err = ErrWrongGroup
+		return nil
+	}
+	proposal := Op{args.Key, "", args.Op, args.Me, args.Ts, args.Index}
+	kv.UpdateDB(proposal)
 	return nil
 }
 
 // RPC handler for client Put and Append requests
 func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 	// Your code here.
+	//Lab4_PartB
+	kv.index = kv.Config.Num
+	if (args.Num > kv.index) {
+		reply.Err = ErrIndex
+		return nil
+	}
+	shard := key2shard(args.Key)
+	if (shard != kv.gid) {
+		reply.Err = ErrWrongGroup
+		return nil
+	}
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+	proposal := Op{args.Key, args.Value, args.Op, args.Me, args.Ts, args.Index}
+	kv.UpdateDB(proposal)
 	return nil
 }
 
+//Lab4_PartB
+func (kv *shardkv) UpdateDB(op Op) {
+	for {
+		kv.seq++
+		kv.px.Start(kv.seq, op)
+		Act := Op{}
+		to := 10 * time.Millisecond
+		for {
+			stat, act := kv.px.GetSeq(kv.seq)
+			if (stat == paxos.Decided) {
+				Act = act.(Op)
+				break
+			}
+			time.Sleep(to)
+			if (to < 10*time.Second) {
+				to *= 2
+			}
+		}
+		kv.ProcOperation(Act)
+	}
+}
 
 //Lab4_PartB
-func exist(arr []int64, e int64) {
+func (kv *ShardKV) ProcOperation(op Op) {
+	
+}
+
+//Lab4_PartB
+func (kv *ShardKV) GetShardDatabase(args *GetShardDatabaseArgs, reply *GetReply) err {
+	shard := args.Shard
+	val, ok := kv.config.Groups[shard]
+	if (ok == false) {
+		reply.Err = ErrWrongGroup
+	}
+	reply.Err = OK
+	reply.Database = kv.database
+	return nil
+}
+
+//Lab4_PartB
+func exist(arr []int64, e int64) bool {
 	for _, v := range arr {
 		if (v == e) {
 			return true
 		}
 	}
 	return false
+}
+
+//Lab4_PartB
+func equal(a []int, b []int) bool {
+	la := len(a)
+	lb := len(b)
+	if (la != lb) {
+		return false 
+	}
+	for i := 0; i < la; i++ {
+		if (a[i] != b[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 //
@@ -95,13 +178,21 @@ func (kv *ShardKV) tick() {
 	kv.index++
 	for kv.index < new_index {
 		config := kv.sm.Query(kv.index)
-		for new_shard, new_group := range config.Groups {
-			if (exist(kv.config.Shards, new_shard) == false) {
-				args := &GetShardDatabaseArgs(new_shard)
-				reply := GetShardDatabaseReply{}
-				for _
-
+		if (equal(kv.config.Groups[kv.gid], config.Groups[kv.gid]) ) {
+			return
+		}
+		for _, srv := range config.Groups[kv.gid] {
+			args := &GetShardDatabaseArgs(kv.gid)
+			reply := GetShardDatabaseReply{}
+			for _, srv := range config.Groups[new_shard] {
+				ok := call(srv, "ShardKV.GetShardDatabase", args, &reply)
+				if (ok && reply.Error == OK) {
+					kv.config = config
+					kv.database = reply.database
+					return
+				}
 			}
+
 		}
 	}
 }
@@ -155,6 +246,7 @@ func StartServer(gid int64, shardmasters []string,
 	kv.database = make(map[string]string{})
 	kv.config = shardmaster.Config{}
 	kv.index = 0
+	kv.seq = 0
 
 	rpcs := rpc.NewServer()
 	rpcs.Register(kv)
