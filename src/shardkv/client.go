@@ -8,6 +8,9 @@ import "fmt"
 import "crypto/rand"
 import "math/big"
 
+//Lab4_PartB
+import "strconv"
+
 type Clerk struct {
 	mu     sync.Mutex // one RPC at a time
 	sm     *shardmaster.Clerk
@@ -102,12 +105,12 @@ func (ck *Clerk) Get(key string) string {
 
 		if ok {
 			//Lab4_PartB
-			ts := time.Now().UnixNano()
+			ts := strconv.FormatInt(time.Now().UnixNano(), 10)
 
 			// try each server in the shard's replication group.
 			for _, srv := range servers {
 				//Lab4_PartB
-				args := &GetArgs{key, "Get", ck.Me, ts}
+				args := &GetArgs{key, "Get", ck.Me, ts, ck.config.Num}
 				//args := &GetArgs{}
 				args.Key = key
 				var reply GetReply
@@ -145,12 +148,12 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 
 		if ok {
 			//Lab4_PartB
-			ts := time.Now().UnixNano()
+			ts := strconv.FormatInt(time.Now().UnixNano(), 10)
 
 			// try each server in the shard's replication group.
 			for _, srv := range servers {
 				//Lab4_PartB
-				args := &PutAppendArgs{key, value, op, ck.Me, ts, ck.config.index}
+				args := &PutAppendArgs{key, value, op, ck.Me, ts, ck.config.Num}
 				//args := &PutAppendArgs{}
 				// args.Key = key
 				// args.Value = value

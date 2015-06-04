@@ -29,7 +29,7 @@ type PutAppendArgs struct {
 
 	//Lab4_PartB
 	Me    string // identify the client
-	Ts    int64  // the operation's timestamp
+	Ts    string // the operation's timestamp
 	Index int    // the index of the config, that's the view number
 }
 
@@ -44,7 +44,7 @@ type GetArgs struct {
 	//Lab4_PartA
 	Op    string  // "Get"
 	Me    string  // identidy the client
-	Ts    int64   // the operateion's timestamp
+	Ts    string  // the operateion's timestamp
 	Index int     // the index of the config
 }
 

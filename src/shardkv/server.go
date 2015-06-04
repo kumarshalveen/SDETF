@@ -32,7 +32,7 @@ type Op struct {
 	Value     string   // value
 	Op        string   // "Put", "Append" or "Get"
 	Me        string   // the id of the client
-	Ts        int64    // the timestamp of a operation
+	Ts        string   // the timestamp of a operation
 	Index     int      // the index of the config
 }
 
@@ -60,18 +60,25 @@ type ShardKV struct {
 func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) error {
 	// Your code here.
 	//Lab4_PartB
-	kv.index = kv.Config.Num
-	if (args.Num > kv.index) {
+	kv.index = kv.config.Num
+	if (args.Index > kv.index) {
 		reply.Err = ErrIndex
 		return nil
 	}
 	shard := key2shard(args.Key)
-	if (shard != kv.gid) {
+	if (kv.config.Shards[shard] != kv.gid) {
 		reply.Err = ErrWrongGroup
 		return nil
 	}
 	proposal := Op{args.Key, "", args.Op, args.Me, args.Ts, args.Index}
 	kv.UpdateDB(proposal)
+	val, exist := kv.database[args.Key]
+	if (exist == false) {
+		reply.Err = ErrNoKey
+	} else {
+		reply.Err = OK
+		reply.Value = val
+	}
 	return nil
 }
 
@@ -79,13 +86,13 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) error {
 func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 	// Your code here.
 	//Lab4_PartB
-	kv.index = kv.Config.Num
-	if (args.Num > kv.index) {
+	kv.index = kv.config.Num
+	if (args.Index > kv.index) {
 		reply.Err = ErrIndex
 		return nil
 	}
 	shard := key2shard(args.Key)
-	if (shard != kv.gid) {
+	if (kv.config.Shards[shard] != kv.gid) {
 		reply.Err = ErrWrongGroup
 		return nil
 	}
@@ -93,11 +100,12 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 	defer kv.mu.Unlock()
 	proposal := Op{args.Key, args.Value, args.Op, args.Me, args.Ts, args.Index}
 	kv.UpdateDB(proposal)
+	reply.Err = OK
 	return nil
 }
 
 //Lab4_PartB
-func (kv *shardkv) UpdateDB(op Op) {
+func (kv *ShardKV) UpdateDB(op Op) {
 	for {
 		kv.seq++
 		kv.px.Start(kv.seq, op)
@@ -115,18 +123,35 @@ func (kv *shardkv) UpdateDB(op Op) {
 			}
 		}
 		kv.ProcOperation(Act)
+		if (op.Ts == Act.Ts) {
+			return
+		}
 	}
 }
 
 //Lab4_PartB
 func (kv *ShardKV) ProcOperation(op Op) {
-	
+	ts, exist := kv.database[op.Me + op.Op]
+	if (exist && ts >= op.Ts) {
+		return
+	}
+	shard := key2shard(op.Key)
+	if (kv.config.Shards[shard] != kv.gid) {
+		return
+	}
+	if (op.Op == "Put") {
+		kv.database[op.Key] = op.Value
+	} else if (op.Op == "Append") {
+		kv.database[op.Key] += op.Value
+	}
+	kv.database[op.Me + op.Op] = op.Ts
+	return
 }
 
 //Lab4_PartB
-func (kv *ShardKV) GetShardDatabase(args *GetShardDatabaseArgs, reply *GetReply) err {
-	shard := args.Shard
-	val, ok := kv.config.Groups[shard]
+func (kv *ShardKV) GetShardDatabase(args *GetShardDatabaseArgs, reply *GetShardDatabaseReply) error {
+	shard := args.GID
+	_, ok := kv.config.Groups[shard]
 	if (ok == false) {
 		reply.Err = ErrWrongGroup
 	}
@@ -146,7 +171,7 @@ func exist(arr []int64, e int64) bool {
 }
 
 //Lab4_PartB
-func equal(a []int, b []int) bool {
+func equal(a []string, b []string) bool {
 	la := len(a)
 	lb := len(b)
 	if (la != lb) {
@@ -170,31 +195,33 @@ func (kv *ShardKV) tick() {
 	defer kv.mu.Unlock()
 	new_config := kv.sm.Query(-1)
 	new_index := new_config.Num
+	//fmt.Println(new_index, kv.index)
 	if (kv.index >= new_index) {
 		return
 	}
 
 	// update config and get the new shards' databases 
-	kv.index++
-	for kv.index < new_index {
-		config := kv.sm.Query(kv.index)
+	//kv.index++
+	//for kv.index < new_index {
+		//fmt.Println("SSSSSSSSSS")
+		config := kv.sm.Query(-1)
 		if (equal(kv.config.Groups[kv.gid], config.Groups[kv.gid]) ) {
+			//fmt.Println("equal")
 			return
 		}
 		for _, srv := range config.Groups[kv.gid] {
-			args := &GetShardDatabaseArgs(kv.gid)
+			args := &GetShardDatabaseArgs{kv.gid}
 			reply := GetShardDatabaseReply{}
-			for _, srv := range config.Groups[new_shard] {
-				ok := call(srv, "ShardKV.GetShardDatabase", args, &reply)
-				if (ok && reply.Error == OK) {
-					kv.config = config
-					kv.database = reply.database
-					return
-				}
+			ok := call(srv, "ShardKV.GetShardDatabase", args, &reply)
+			if (ok && reply.Err == OK) {
+				kv.config = config
+				kv.database = reply.Database
+				kv.index = config.Num
+				return
 			}
-
+			
 		}
-	}
+	//}
 }
 
 // tell the server to shut itself down.
@@ -243,7 +270,7 @@ func StartServer(gid int64, shardmasters []string,
 	// Your initialization code here.
 	// Don't call Join().
 	//Lab4_PartB
-	kv.database = make(map[string]string{})
+	kv.database = make(map[string]string)
 	kv.config = shardmaster.Config{}
 	kv.index = 0
 	kv.seq = 0
