@@ -14,6 +14,9 @@ import "encoding/gob"
 import "math/rand"
 import "shardmaster"
 
+//Lab4_PartB
+import "strconv"
+
 
 const Debug = 0
 
@@ -34,6 +37,8 @@ type Op struct {
 	Me        string   // the id of the client
 	Ts        string   // the timestamp of a operation
 	Index     int      // the index of the config
+	Database  map[string]string
+	Config    shardmaster.Config
 }
 
 
@@ -54,6 +59,7 @@ type ShardKV struct {
 	config     shardmaster.Config  //config
 	index      int                 //index of the config
 	seq        int                 //max seq numvber
+	Me         string              //client id ,for reconfig
 }
 
 
@@ -70,8 +76,11 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) error {
 		reply.Err = ErrWrongGroup
 		return nil
 	}
-	proposal := Op{args.Key, "", args.Op, args.Me, args.Ts, args.Index}
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+	proposal := Op{args.Key, "", args.Op, args.Me, args.Ts, args.Index, map[string]string{}, shardmaster.Config{}}
 	kv.UpdateDB(proposal)
+	//fmt.Println(kv.config,"\n",kv.database,"\n\n")
 	val, exist := kv.database[args.Key]
 	if (exist == false) {
 		reply.Err = ErrNoKey
@@ -98,7 +107,7 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 	}
 	kv.mu.Lock()
 	defer kv.mu.Unlock()
-	proposal := Op{args.Key, args.Value, args.Op, args.Me, args.Ts, args.Index}
+	proposal := Op{args.Key, args.Value, args.Op, args.Me, args.Ts, args.Index, map[string]string{}, shardmaster.Config{}}
 	kv.UpdateDB(proposal)
 	reply.Err = OK
 	return nil
@@ -106,6 +115,11 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 
 //Lab4_PartB
 func (kv *ShardKV) UpdateDB(op Op) {
+	if (op.Op == "Reconfig") {
+		if (op.Config.Num <= kv.config.Num) {
+			return
+		}
+	}
 	for {
 		kv.seq++
 		kv.px.Start(kv.seq, op)
@@ -141,8 +155,22 @@ func (kv *ShardKV) ProcOperation(op Op) {
 	}
 	if (op.Op == "Put") {
 		kv.database[op.Key] = op.Value
+		//fmt.Println("PPPPPPPPPUTTTTT")
 	} else if (op.Op == "Append") {
 		kv.database[op.Key] += op.Value
+	} else if (op.Op == "Reconfig") {
+		for k, v := range op.Database {
+			_, exs := kv.database[k]
+			if (exs == false) {
+				kv.database[k] = v
+			}
+		}
+		// fmt.Println(op.Config.Num)
+		//fmt.Println(kv.config)
+		//kv.config = op.Config
+		//fmt.Println(kv.config)
+		// kv.index = kv.config.Num
+
 	}
 	kv.database[op.Me + op.Op] = op.Ts
 	return
@@ -150,6 +178,9 @@ func (kv *ShardKV) ProcOperation(op Op) {
 
 //Lab4_PartB
 func (kv *ShardKV) GetShardDatabase(args *GetShardDatabaseArgs, reply *GetShardDatabaseReply) error {
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+	kv.index = kv.config.Num
 	shard := args.GID
 	_, ok := kv.config.Groups[shard]
 	if (ok == false) {
@@ -157,6 +188,19 @@ func (kv *ShardKV) GetShardDatabase(args *GetShardDatabaseArgs, reply *GetShardD
 	}
 	reply.Err = OK
 	reply.Database = kv.database
+	if (args.Index <= kv.index) {
+		return nil
+	}
+	// for k, v := range args.Database {
+	// 	_, exs := kv.database[k]
+	// 	if (exs == false) {
+	// 		kv.database[k] = v
+	// 	}
+	// }
+	// proposal := Op{"", "", "Reconfig", args.Me, args.Ts, kv.index, args.Database}
+	// fmt.Println("SSSSSSSSSSSS1")
+	// kv.UpdateDB(proposal)
+	// fmt.Println("SSSSSSSSSSSS2")
 	return nil
 }
 
@@ -193,35 +237,76 @@ func (kv *ShardKV) tick() {
 	//Lab4_PartB
 	kv.mu.Lock()
 	defer kv.mu.Unlock()
-	new_config := kv.sm.Query(-1)
-	new_index := new_config.Num
+	config := kv.sm.Query(-1)
+	index := config.Num
+	kv.index = kv.config.Num
 	//fmt.Println(new_index, kv.index)
-	if (kv.index >= new_index) {
+	if (kv.index >= index) {
 		return
 	}
-
+	if (kv.index == 0 && index == 1) {
+		kv.index = index
+		kv.config = config
+		return
+	}
+//fmt.Println(kv.index, index)
+	ts := strconv.FormatInt(time.Now().UnixNano(), 10)
+	database_newpart := map[string]string{}
+	args := &GetShardDatabaseArgs{kv.gid, index, kv.database, kv.Me, ts}
+	reply := GetShardDatabaseReply{}		
+	for shard, gid_old := range kv.config.Shards {
+		gid_new := config.Shards[shard]
+		if (gid_new != gid_old && gid_new == kv.gid) {
+			got := false
+			for _, srv := range kv.config.Groups[gid_old] {
+				ok := call(srv, "ShardKV.GetShardDatabase", args, &reply)
+				if (ok && reply.Err == OK) {
+					for k, v := range reply.Database {
+						_, exist := database_newpart[k]
+						if (exist == false) {
+							database_newpart[k] = v
+						}
+					}
+					got = true
+					break
+				}
+			}
+			if (got == false && gid_old > 0) {
+				return
+			}
+		}	
+	}
+	proposal := Op{"", "", "Reconfig", args.Me, args.Ts, index, database_newpart, config}
+	kv.UpdateDB(proposal)
+	//kv.config = config
+	//kv.index = index
 	// update config and get the new shards' databases 
 	//kv.index++
 	//for kv.index < new_index {
-		//fmt.Println("SSSSSSSSSS")
-		config := kv.sm.Query(-1)
-		if (equal(kv.config.Groups[kv.gid], config.Groups[kv.gid]) ) {
-			//fmt.Println("equal")
-			return
-		}
-		for _, srv := range config.Groups[kv.gid] {
-			args := &GetShardDatabaseArgs{kv.gid}
-			reply := GetShardDatabaseReply{}
-			ok := call(srv, "ShardKV.GetShardDatabase", args, &reply)
-			if (ok && reply.Err == OK) {
-				kv.config = config
-				kv.database = reply.Database
-				kv.index = config.Num
-				return
-			}
+	// 	//fmt.Println("SSSSSSSSSS")
+	// 	config := kv.sm.Query(-1)
+	// 	if (equal(kv.config.Groups[kv.gid], config.Groups[kv.gid]) ) {
+	// 		//fmt.Println("equal")
+	// 		return
+	// 	}
+	// 	for _, srv := range config.Groups[kv.gid] {
+	// 		args := &GetShardDatabaseArgs{kv.gid, kv.database}
+	// 		reply := GetShardDatabaseReply{}
+	// 		ok := call(srv, "ShardKV.GetShardDatabase", args, &reply)
+	// 		if (ok && reply.Err == OK) {
+	// 			kv.config = config
+	// 			for k, v := range reply.Database {
+	// 				_, exist := kv.database[k]
+	// 				if (exist == false) {
+	// 					kv.database[k] = v
+	// 				}	
+	// 			}
+	// 			kv.index = config.Num
+	// 			//return
+	// 		}
 			
-		}
-	//}
+	// 	}
+	// //}
 }
 
 // tell the server to shut itself down.
@@ -274,6 +359,8 @@ func StartServer(gid int64, shardmasters []string,
 	kv.config = shardmaster.Config{}
 	kv.index = 0
 	kv.seq = 0
+	kv.Me = strconv.FormatInt(nrand(), 10)
+
 
 	rpcs := rpc.NewServer()
 	rpcs.Register(kv)
