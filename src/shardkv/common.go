@@ -55,16 +55,16 @@ type GetReply struct {
 
 //Lab4_PartB
 type GetShardDatabaseArgs struct {
-	GID      int64             // the group id
+	Shard    int             // the group id
 	Index    int
 	Database map[string]string // the database
 	Me       string
-	Ts       string
 }
 
 //Lab4_PartB
 type  GetShardDatabaseReply struct {
 	Err      Err                // error info
 	Database map[string]string  // the dataabse
-
+	Logstime map[string]string
+	
 }
