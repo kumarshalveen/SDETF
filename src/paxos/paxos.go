@@ -248,7 +248,14 @@ func (px *Paxos) Proposer(seq int, v interface{}){
 
 //Lab3_PartA
 func (px *Paxos) Prepare(args *PrepareArgs, reply *PrepareReply) error { 
+	defer func() {
+		//fmt.Println("Warning. Someting is wrong.")
+		if err := recover(); err != nil {
+			//fmt.Println(err)
+		}
+	}()
 	px.mu.Lock()
+	defer px.mu.Unlock()
 	seq, n := args.Seq, args.Num
     _, ok := px.instance[seq]
     if (ok == false) {//init
@@ -268,7 +275,7 @@ func (px *Paxos) Prepare(args *PrepareArgs, reply *PrepareReply) error {
     		//reply = &PrepareReply{seq, px.instance[seq].n_p, px.instance[seq].n_a, px.instance[seq].v_a, false}
 		}
     }
-	px.mu.Unlock()
+	//px.mu.Unlock()
 	return nil
 }
 
