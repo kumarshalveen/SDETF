@@ -281,6 +281,12 @@ func (px *Paxos) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 
 //Lab3_PartA
 func (px *Paxos) Accept(args *AcceptArgs, reply *AcceptReply) error { 
+	defer func() {
+		//fmt.Println("Warning. Someting is wrong.")
+		if err := recover(); err != nil {
+			//fmt.Println(err)
+		}
+	}()
 	px.mu.Lock()
 	seq, n, v := args.Seq, args.Num, args.Val
     _, ok := px.instance[seq]
@@ -303,6 +309,12 @@ func (px *Paxos) Accept(args *AcceptArgs, reply *AcceptReply) error {
 
 //Lab3_PartA
 func (px *Paxos) Decide(args *DecideArgs, reply *DecideReply) error {
+	defer func() {
+		//fmt.Println("Warning. Someting is wrong.")
+		if err := recover(); err != nil {
+			//fmt.Println(err)
+		}
+	}()
 	px.mu.Lock()
 	//fmt.Println("I am server:", px.me, "DECIDE!!!!!!!!!!!!")
 	//seq, n, v, Done, database, _, dones_max := args.Seq, args.Num, args.Val, args.Done_max, args.Database, args.Me, args.Dones
