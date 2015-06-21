@@ -171,7 +171,7 @@ func (sm *ShardMaster) UpdateDB(proposal Op) {
 		Act := Op{}
 		//get a act log
 		for {
-			stat, act := sm.px.GetSeq(sm.seq)
+			stat, act := sm.px.Status(sm.seq)
 			if (stat == paxos.Decided) {
 				Act = act.(Op)
 				break

@@ -145,7 +145,7 @@ func (kv *ShardKV) UpdateDB(op Op) {
 		} else if (op.Op == "GetData") {
 		} else {
 			ts, exist := kv.logstime[op.Me + op.Op]
-			if (exist == true && ts > op.Ts) {
+			if (exist && ts >= op.Ts) {
 				return
 			}
 			shard := key2shard(op.Key)
@@ -158,7 +158,7 @@ func (kv *ShardKV) UpdateDB(op Op) {
 		Act := Op{}
 		to := 10 * time.Millisecond
 		for {
-			stat, act := kv.px.GetSeq(kv.seq)
+			stat, act := kv.px.Status(kv.seq)
 			if (stat == paxos.Decided) {
 				Act = act.(Op)
 				break
@@ -192,7 +192,6 @@ func (kv *ShardKV) ProcOperation(op Op) {
 	if (op.Op == "Put") {
 		kv.database[op.Key] = op.Value
 		kv.logstime[op.Me + op.Op] = op.Ts
-		//fmt.Println("PPPPPPPPPUTTTTT")
 	} else if (op.Op == "Append") {
 		kv.database[op.Key] += op.Value
 		kv.logstime[op.Me + op.Op] = op.Ts
@@ -203,14 +202,7 @@ func (kv *ShardKV) ProcOperation(op Op) {
 			
 		}
 		for k, v := range op.Logstime {
-			val, exs := kv.database[k]
-			// if (exs == false) {
-			// 	kv.logstime[k] = v
-			// } else {
-			// 	if (v > val) {
-			// 		kv.logstime[k] = v
-			// 	}
-			// }
+			val, exs := kv.logstime[k]
 			if !(exs && val >= v) {
 				kv.logstime[k] = v
 			}
@@ -256,45 +248,7 @@ func (kv *ShardKV) GetShardDatabase(args *GetShardDatabaseArgs, reply *GetShardD
 	reply.Err = OK
 	reply.Database = dbs
 	reply.Logstime = lgs
-	// if (args.Index <= kv.index) {
-	// 	return nil
-	// }
-	// for k, v := range args.Database {
-	// 	_, exs := kv.database[k]
-	// 	if (exs == false) {
-	// 		kv.database[k] = v
-	// 	}
-	// }
-	// proposal := Op{"", "", "Reconfig", args.Me, args.Ts, kv.index, args.Database}
-	// fmt.Println("SSSSSSSSSSSS1")
-	// kv.UpdateDB(proposal)
-	// fmt.Println("SSSSSSSSSSSS2")
 	return nil
-}
-
-//Lab4_PartB
-func exist(arr []int64, e int64) bool {
-	for _, v := range arr {
-		if (v == e) {
-			return true
-		}
-	}
-	return false
-}
-
-//Lab4_PartB
-func equal(a []string, b []string) bool {
-	la := len(a)
-	lb := len(b)
-	if (la != lb) {
-		return false 
-	}
-	for i := 0; i < la; i++ {
-		if (a[i] != b[i]) {
-			return false
-		}
-	}
-	return true
 }
 
 //
@@ -328,13 +282,6 @@ func (kv *ShardKV) tick() {
 	 					}
 	 					for k, v := range reply.Logstime {
 	 						val, exist := logstime_newpart[k]
-	 						// if (exist == false) {
-	 						// 	logstime_newpart[k] = v
-	 						// } else {
-	 						// 	if (val < v) {
-	 						// 		logstime_newpart[k] = v
-	 						// 	}
-	 						// }
 	 						if !(exist && val >= v) {
 								logstime_newpart[k] = v
 							}
