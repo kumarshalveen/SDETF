@@ -95,6 +95,8 @@ func (ck *Clerk) Get(key string) string {
 	defer ck.mu.Unlock()
 
 	// You'll have to modify Get().
+	//Lab4_PartB
+	ts := strconv.FormatInt(time.Now().UnixNano(), 10)
 
 	for {
 		shard := key2shard(key)
@@ -104,9 +106,6 @@ func (ck *Clerk) Get(key string) string {
 		servers, ok := ck.config.Groups[gid]
 
 		if ok {
-			//Lab4_PartB
-			ts := strconv.FormatInt(time.Now().UnixNano(), 10)
-
 			// try each server in the shard's replication group.
 			for _, srv := range servers {
 				//Lab4_PartB
@@ -138,6 +137,8 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	defer ck.mu.Unlock()
 
 	// You'll have to modify PutAppend().
+	//Lab4_PartB
+	ts := strconv.FormatInt(time.Now().UnixNano(), 10)
 
 	for {
 		shard := key2shard(key)
@@ -147,9 +148,6 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 		servers, ok := ck.config.Groups[gid]
 
 		if ok {
-			//Lab4_PartB
-			ts := strconv.FormatInt(time.Now().UnixNano(), 10)
-
 			// try each server in the shard's replication group.
 			for _, srv := range servers {
 				//Lab4_PartB
