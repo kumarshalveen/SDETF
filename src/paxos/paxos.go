@@ -326,25 +326,7 @@ func (px *Paxos) Decide(args *DecideArgs, reply *DecideReply) error {
 	} else {
 		px.instance[seq].status = Decided
 	}
-	px.done[seq] = true
-	
-	// for i, _ := range dones_max {
-	// 	if (px.dones_max[i] < dones_max[i]) {
-	// 		px.dones_max[i] = dones_max[i]
-	// 	}
-	// }
 	px.dones_max[me] = dones_max[me]
-	
-	// for i, v := range database {
-	// 	if (i <= px.dones_max[px.me]) {
-	// 		continue
-	// 	}
-	// 	_, ok2 := px.database[i]
-	// 	if (ok2 == false) {
-	// 		px.database[i] = v
-	// 	}
-	// }
-
 	reply.Seq, reply.Dones_max, reply.OK = args.Seq, px.dones_max, true
 	//fmt.Println(reply)
 	//px.delete_logs()
@@ -368,49 +350,6 @@ func (px *Paxos) delete_logs() {
 	}
 }
 
-//Lab3_PartB
-func (px *Paxos) GetSeq(seq int) (Fate, interface{}) {
-	min := px.Min()
-	if (seq < min) {
-		return Forgotten, nil
-	}
-	px.mu.Lock()
-	defer px.mu.Unlock()
-	stat, ok := px.instance[seq]
-	if (ok && stat.status == Decided) {
-		return Decided, px.database[seq]
-	} else {
-		return Pending, nil
-	}
-}
-//Lab3_PartB
-func (px *Paxos) GetDB() (map[int]interface{}) {
-	px.mu.Lock()
-	defer px.mu.Unlock()
-	return px.database
-}
-//Lab3_PartB
-func (px *Paxos) AddDone(seq int, me int) {
-	px.mu.Lock()
-	defer px.mu.Unlock()
-	if (seq > px.dones_max[me]) {
-		px.dones_max[me] = seq
-	}
-	min := px.dones_max[me]
-	//fmt.Println("px.dones_max:",px.dones_max)
-	for _, v := range px.dones_max {
-		if (v < min) {
-			min = v
-		}
-	}
-	for i, _ :=range px.database {
-		if (i < min) {
-			delete(px.database, i)
-		}
-	}
-}
-
-
 //
 // the application wants paxos to start agreement on
 // instance seq, with proposed value v. Athour: lmhtq
@@ -422,19 +361,7 @@ func (px *Paxos) Start(seq int, v interface{}) {
 	// Your code here.
 	//Lab3_PartA
 	go func() {
-		// _, ok := px.instance[seq]
-		// if (ok == true) {
-		// 	return
-		// }
-		// if (seq < px.Min()) {
-		// 	return
-		// } else {
 			px.Proposer(seq, v)
-		//}
-		// stat, _ := px.Status(seq)
-		// if (Decided == stat) {
-		// 	return
-		// }
 	}()
 	return
 }
@@ -448,9 +375,6 @@ func (px *Paxos) Start(seq int, v interface{}) {
 func (px *Paxos) Done(seq int) {
 	// Your code here.
 	//Lab3_PartA
-	//px.mu.Lock()
-	// if (seq > px.Done_max) {
-	// 	px.Done_max = seq
 	if (seq > px.dones_max[px.me]) {
 		px.dones_max[px.me] = seq
 	}
@@ -554,29 +478,19 @@ func (px *Paxos) Min() int {
 //
 func (px *Paxos) Status(seq int) (Fate, interface{}) {
 	// Your code here.
-	if (seq < px.Min()) {
+	min := px.Min()
+	if (seq < min) {
 		return Forgotten, nil
 	}
-	//px.delete_logs()
-	
 	px.mu.Lock()
 	defer px.mu.Unlock()
 	stat, ok := px.instance[seq]
-	if (ok == false) {
+	if (ok && stat.status == Decided) {
+		return Decided, px.database[seq]
+	} else {
 		return Pending, nil
 	}
-	if (stat.status == Decided) {
-		return Decided, nil
-	}
-	return Pending, nil
-	// ins, ok := px.instance[seq]
- //    if ok && ins.status == Decided {
- //        return Decided, px.database[seq]
- //    } else {
- //        return Pending, nil
- //    }
 }
-
 
 
 //
@@ -627,7 +541,6 @@ func Make(peers []string, me int, rpcs *rpc.Server) *Paxos {
 	px.instance = make(map[int]*State)
 	px.database = make(map[int]interface{})
 	px.n_servers = len(peers)
-	px.done = make(map[int]bool)
 	px.Done_max = -1
 	px.dones_max = make([]int, px.n_servers)
 	for i, _ := range px.dones_max {

@@ -73,14 +73,7 @@ func (kv *KVPaxos) Get(args *GetArgs, reply *GetReply) error {
 	proposal := Op{args.Key, "Get", args.Op, args.Me, args.Id, args.Ts}
 	//proposal := Op{Key:args.Key, Op:"Get", Me:args.Me, Id:args.Id}//, time.Now().UnixNano()}
 	//cnt := 1
-	//step := len(kv.servers)
-	//kv.AddLog(proposal)
-	//reply.Value = kv.database[args.Key]
-	//return nil
 	
-	//may chu xian replicated seq number
-	//kv.px.Start(kv.seq, proposal)//request
-	//
 	kv.UpdateDB(proposal)
 	//fmt.Println(kv.px.GetDB())
 	value, ok := kv.database[args.Key]
@@ -90,8 +83,6 @@ func (kv *KVPaxos) Get(args *GetArgs, reply *GetReply) error {
 		reply.Err = OK
 		reply.Value = value
 	}
-	//fmt.Println(kv.px.GetDB())
-	//fmt.Println(kv.servers[kv.me], kv.database)
 	return nil
 	
 }
@@ -110,37 +101,9 @@ func (kv *KVPaxos) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 	proposal := Op{args.Key, args.Value, args.Op, args.Me, args.Id, args.Ts}
 	//proposal := Op{Key:args.Key, Value:args.Value, Op:args.Op, Me:args.Me, Id:args.Id}//, time.Now().UnixNano()}
 	//kv.px.Start(kv.seq, proposal)//request
-	//kv.seq++
-	//kv.AddLog(proposal)
-	//reply.Value = kv.database[kv.Key]
-	//return nil
 	kv.UpdateDB(proposal)
 	to := 100*time.Millisecond
 	time.Sleep(to)
-	// for {
-	// 	time.Sleep(to)
-	// 	db := kv.px.GetDB()
-	// 	flag := false
-	// 	for i, _ := range db {
-	// 		v := db[i].(Op)
-	// 		if (v.Id == proposal.Id) {
-	// 			flag = true
-	// 		}
-	// 	}
-	// 	if (flag == true) {
-	// 		//fmt.Println("OOOOOOKKKKKKKKKK", proposal, kv.px.GetDB())
-	// 		break
-	// 	} else {
-	// 		if (to < 10*time.Second) {
-	// 		//if (to < 100*time.Millisecond) {
-	// 			to *= 2
-	// 		} else {
-	// 			//fmt.Println("SSSSSSSSSSS:", proposal)
-	// 			go kv.UpdateDB(proposal)//retry
-	// 			to = 10*time.Millisecond
-	// 		}
-	// 	}
-	// }
 	reply.Err = OK
 	return nil
 	
@@ -152,43 +115,13 @@ func (kv *KVPaxos) UpdateDB(now Op) {
 	if (in == true && ts >= now.Ts) {
 		return
 	}
-	//time.Sleep(2*time.Second)
-	//kv.mu.Lock()
-	//for i:=kv.seq; i <= kv.px.Max(); i++ {//this doesnt work
 	flag := false
-	// db := kv.px.GetDB()
-	// for i, v := range db {
-	// 	act := v.(Op)
-	// 	if (kv.seqmap[i] == true) {
-	// 		break
-	// 	}
-	// 	if (act.Op == "Put") {
-	// 		if (kv.logs_time[act.Op] < act.Ts) {
-	// 			kv.database[act.Key] = act.Value
-	// 		}
-	// 	}
-	// 	if (act.Op == "Append") {
-	// 		if (kv.logs[act.Me] != act.Id) {
-	// 			if (kv.logs_time[act.Op] < act.Ts) {
-	// 				kv.database[act.Key] += act.Value
-	// 			}
-	// 		}
-	// 	}
-	// 	kv.logs[act.Me] = act.Id
-	// 	kv.logs_time[act.Op] = act.Ts
-	// 	kv.seqmap[i] = true
-	// 	// if (kv.seq < i) {
-	// 	// 	kv.seq = i
-	// 	// }
-	// }
-	//fmt.Println(kv.seqmap)
-	//for i:=kv.seq; i <= kv.px.Max()+1; i++ {
 	for {
 		i := kv.seq+1
 		kv.px.Start(i, now)
 		to := 10*time.Millisecond
 		for {
-			stat, proposal := kv.px.GetSeq(i)
+			stat, proposal := kv.px.Status(i)
 			//flag := false
 			if (stat == paxos.Decided) {
 				if (proposal == nil) {
@@ -206,9 +139,6 @@ func (kv *KVPaxos) UpdateDB(now Op) {
 					// if (kv.logs2[act.Me + act.Id] == true) {
 					// 	break
 					// }
-					if (i == 3) {
-						//fmt.Println("33333:",i, kv.seqmap,kv.servers[kv.me], now)
-					}
 					if (act.Op == "Put") {
 						tmp2, in2 := kv.logs_time[act.Me + act.Op]
 						if (in2 == false) {
@@ -247,14 +177,8 @@ func (kv *KVPaxos) UpdateDB(now Op) {
 			}
 			time.Sleep(to)
 			if (to < 10*time.Second) {
-			//if (to < 100*time.Millisecond) {
 				to *= 2
-				// now.Ts = time.Now().String()
-				// kv.px.Start(kv.px.Max()+1, now)
 			} else {
-				// now.Ts = time.Now().String()
-				// fmt.Println("SSSSSS",now)
-				// kv.px.Start(kv.px.Max()+1, now)
 				break
 			}
 		}
@@ -262,14 +186,10 @@ func (kv *KVPaxos) UpdateDB(now Op) {
 		if (flag == true) {
 			return
 		}
-	}
-	
-	
+	}	
 	//kv.mu.Unlock()
 	return
-
 }
-
 
 
 // tell the server to shut itself down.
@@ -314,12 +234,6 @@ func StartServer(servers []string, me int) *KVPaxos {
 
 	// Your initialization code here.
 	//Lab3_PartB
-	// gob.Register(Proposal{})
-	// gob.Register(paxos.Paxos{})
-	// gob.Register(PutAppendArgs{})
-	// gob.Register(GetArgs{})
-	// //gob.Register(paxos.State{})
-	// gob.Register(Op{})
 	kv.servers = servers
 	kv.seq = 0//kv.me
 	kv.step = len(servers)
@@ -329,15 +243,6 @@ func StartServer(servers []string, me int) *KVPaxos {
 	kv.seqmap = make(map[int]bool)
 	kv.seqmax = -1
 	kv.cnt = 1
-
-	/*kick
-	go func(){
-		for {
-			time.Sleep(200*time.Millisecond)
-			kv.tick()
-		}
-	}()
-	*/
 
 
 	rpcs := rpc.NewServer()
