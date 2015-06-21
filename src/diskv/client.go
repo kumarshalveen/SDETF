@@ -8,11 +8,16 @@ import "fmt"
 import "crypto/rand"
 import "math/big"
 
+//Lab5
+import "strconv"
+
 type Clerk struct {
 	mu     sync.Mutex // one RPC at a time
 	sm     *shardmaster.Clerk
 	config shardmaster.Config
 	// You'll have to modify Clerk.
+	//Lab5
+	Me     string     //the client id
 }
 
 func nrand() int64 {
@@ -26,6 +31,8 @@ func MakeClerk(shardmasters []string) *Clerk {
 	ck := new(Clerk)
 	ck.sm = shardmaster.MakeClerk(shardmasters)
 	// You'll have to modify MakeClerk.
+	//Lab5
+	ck.Me = strconv.FormatInt(nrand(), 10)
 	return ck
 }
 
@@ -87,7 +94,9 @@ func (ck *Clerk) Get(key string) string {
 	defer ck.mu.Unlock()
 
 	// You'll have to modify Get().
-
+	//Lab5
+	ts := strconv.FormatInt(time.Now().UnixNano(), 10)
+	
 	for {
 		shard := key2shard(key)
 
@@ -98,7 +107,9 @@ func (ck *Clerk) Get(key string) string {
 		if ok {
 			// try each server in the shard's replication group.
 			for _, srv := range servers {
-				args := &GetArgs{}
+				//Lab5
+				args := &GetArgs{key, "Get", ck.Me, ts, ck.config.Num}
+				//args := &GetArgs{}
 				args.Key = key
 				var reply GetReply
 				ok := call(srv, "DisKV.Get", args, &reply)
@@ -125,7 +136,9 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	defer ck.mu.Unlock()
 
 	// You'll have to modify PutAppend().
-
+	//Lab5
+	ts := strconv.FormatInt(time.Now().UnixNano(), 10)
+	
 	for {
 		shard := key2shard(key)
 
@@ -136,10 +149,12 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 		if ok {
 			// try each server in the shard's replication group.
 			for _, srv := range servers {
-				args := &PutAppendArgs{}
-				args.Key = key
-				args.Value = value
-				args.Op = op
+				//Lab5
+				args := &PutAppendArgs{key, value, op, ck.Me, ts, ck.config.Num}
+				//args := &PutAppendArgs{}
+				// args.Key = key
+				// args.Value = value
+				// args.Op = op
 				var reply PutAppendReply
 				ok := call(srv, "DisKV.PutAppend", args, &reply)
 				if ok && reply.Err == OK {

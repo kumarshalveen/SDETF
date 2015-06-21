@@ -13,6 +13,8 @@ const (
 	OK            = "OK"
 	ErrNoKey      = "ErrNoKey"
 	ErrWrongGroup = "ErrWrongGroup"
+	//Lab5
+	ErrIndex      = "ErrIndex"
 )
 
 type Err string
@@ -25,6 +27,10 @@ type PutAppendArgs struct {
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
 
+	//Lab5
+	Me    string // identify the client
+	Ts    string // the operation's timestamp
+	Index int    // the index of the config, that's the view number    
 }
 
 type PutAppendReply struct {
@@ -34,6 +40,12 @@ type PutAppendReply struct {
 type GetArgs struct {
 	Key string
 	// You'll have to add definitions here.
+
+	//Lab5
+	Op    string  // "Get"
+	Me    string  // identidy the client
+	Ts    string  // the operateion's timestamp
+	Index int     // the index of the config
 }
 
 type GetReply struct {
@@ -41,3 +53,18 @@ type GetReply struct {
 	Value string
 }
 
+//Lab5
+type GetShardDatabaseArgs struct {
+	Shard    int             // the group id
+	Index    int
+	Database map[string]string // the database
+	Me       string
+}
+
+//Lab5
+type  GetShardDatabaseReply struct {
+	Err      Err                // error info
+	Database map[string]string  // the dataabse
+	Logstime map[string]string
+	
+}
