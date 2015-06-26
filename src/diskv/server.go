@@ -43,6 +43,7 @@ type Op struct {
 	Database  map[string]string
 	Config    shardmaster.Config
 	Logstime  map[string]string
+	Type      string   // "OPS","LOG","PROS"
 }
 
 
@@ -67,40 +68,42 @@ type DisKV struct {
 	seq        int                 //max seq numvber
 	Me         string              //client id ,for reconfig
 }
-
 //Lab5
-type State struct {
-	Key        string
-	Value      string
-	Op         string
-	Me         string
-	Ts         string
-	Type       string
-}
-//Lab5
-func (kv *DisKV) encState(state State) string {
+func (kv *DisKV) encOp(op Op) string {
 	w := new(bytes.Buffer)
 	e := gob.NewEncoder(w)
-	e.Encode(state.Key)
-	e.Encode(state.Value)
-	e.Encode(state.Op)
-	e.Encode(state.Me)
-	e.Encode(state.Ts)
-	e.Encode(state.Type)
+	e.Encode(op.Key)
+	e.Encode(op.Value)
+	e.Encode(op.Op)
+	e.Encode(op.Me)
+	e.Encode(op.Ts)
+	e.Encode(op.Index)
+	e.Encode(op.Database)
+	e.Encode(op.Config)
+	e.Encode(op.Logstime)
+	e.Encode(op.Type)
 	return string(w.Bytes())
 }
 //Lab5
-func (kv *DisKV) decState(buf string) State {
+func (kv *DisKV) decOp(buf string) Op {
 	r := bytes.NewBuffer([]byte(buf))
 	d := gob.NewDecoder(r)
-	var state State
-	d.Decode(&state.Key)
-	d.Decode(&state.Value)
-	d.Decode(&state.Op)
-	d.Decode(&state.Me)
-	d.Decode(&state.Ts)
-	d.Decode(&state.Type)
-	return state
+	var op Op
+	d.Decode(&op.Key)
+	d.Decode(&op.Value)
+	d.Decode(&op.Op)
+	d.Decode(&op.Me)
+	d.Decode(&op.Ts)
+	d.Decode(&op.Index)
+	d.Decode(&op.Database)
+	d.Decode(&op.Config)
+	d.Decode(&op.Logstime)
+	d.Decode(&op.Type)
+	return op
+}
+//Lab5
+func (kv *DisKV) RestoreOps() error {
+	return nil
 }
 
 //
@@ -213,20 +216,21 @@ func (kv *DisKV) Get(args *GetArgs, reply *GetReply) error {
 		args.Index, 
 		map[string]string{}, 
 		shardmaster.Config{},
-		map[string]string{}}
+		map[string]string{},
+		"PROS"}
 	kv.UpdateDB(proposal)
 	shard := key2shard(args.Key)
 	if (kv.config.Shards[shard] != kv.gid) {
 		reply.Err = ErrWrongGroup
-		fmt.Println("Debug:",ErrWrongGroup)
+		//fmt.Println("Debug:(Put)",ErrWrongGroup)
 		return nil
 	}
 	content, err := kv.fileGet(key2shard(args.Key), args.Key)
 	if (err != nil) {
 		reply.Err = ErrNoKey
-		fmt.Println("Debug:",ErrNoKey, content)
+		//fmt.Println("Debug:(Put)",ErrNoKey, content)
 	} else {
-		state := kv.decState(content)
+		state := kv.decOp(content)
 		if (state.Type == "OPS") {
 			reply.Err = OK
 			reply.Value = state.Value
@@ -256,10 +260,12 @@ func (kv *DisKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 		args.Index, 
 		map[string]string{}, 
 		shardmaster.Config{}, 
-		map[string]string{}}
+		map[string]string{},
+		"PROS"}
 	kv.UpdateDB(proposal)
 	shard := key2shard(args.Key)
 	if (kv.config.Shards[shard] != kv.gid) {
+		//fmt.Println("Debug:(PutAppend)", ErrWrongGroup)
 		reply.Err = ErrWrongGroup
 		return nil
 	}
@@ -269,6 +275,7 @@ func (kv *DisKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 
 //Lab5
 func (kv *DisKV) UpdateDB(op Op) {
+	//kv.filePut(key2shard(op.Key), op.Me + op.Ts, kv.encOp(op))
 	for {
 		//fmt.Println(op)
 		if (op.Op == "Reconfig") {
@@ -277,19 +284,20 @@ func (kv *DisKV) UpdateDB(op Op) {
 			}
 		} else if (op.Op == "GetData") {
 		} else {
-			content, err := kv.fileGet(key2shard(op.Key), op.Key)
+			shard := key2shard(op.Key)
+			if (kv.config.Shards[shard] != kv.gid) {
+				return
+			}
+			content, err := kv.fileGet(key2shard(op.Key), op.Me+op.Op)
 			if (err == nil) {
-				state := kv.decState(content)
-				ts := state.Ts
-				if (ts >= op.Ts) {
+				log_state := kv.decOp(content)
+				//fmt.Println("log_state:",log_state)
+				ts_log := log_state.Ts
+				if (ts_log >= op.Ts) {
 					return
 				}
 			} else {
 				//return
-			}
-			shard := key2shard(op.Key)
-			if (kv.config.Shards[shard] != kv.gid) {
-				return
 			}
 		}
 		kv.seq++
@@ -310,6 +318,7 @@ func (kv *DisKV) UpdateDB(op Op) {
 		kv.ProcOperation(Act)
 		kv.px.Done(kv.seq)
 		if (op.Ts == Act.Ts) {
+			//kv.filePut(key2shard(op.Key), op.Me + op.Ts, "")
 			return
 		}
 	}
@@ -321,35 +330,64 @@ func (kv *DisKV) ProcOperation(op Op) {
 		return
 	}
 	if (op.Op == "Put") {
-		state_op := State{op.Key, op.Value, op.Op, op.Me, op.Ts, "OPS"}
-		kv.filePut(key2shard(state_op.Key), state_op.Key, kv.encState(state_op))
-		state_log := State{op.Key, op.Value, op.Op, op.Me, op.Ts, "LOG"}
-		kv.filePut(key2shard(state_log.Key), state_log.Me + state_log.Op, kv.encState(state_log))
-	} else if (op.Op == "Append") {
-		content, err := kv.fileGet(key2shard(op.Key), op.Key)
-		if (err != nil) {
+		content, err := kv.fileGet(key2shard(op.Key), op.Me+op.Op)
+		if (err == nil) {
+			log_state := kv.decOp(content)
+			//fmt.Println("log_state:",log_state)
+			ts_log := log_state.Ts
+			if (ts_log >= op.Ts) {
+				return
+			}
+		} else {
 			//return
 		}
-		state_op0 := kv.decState(content)
-		state_op := State{op.Key, state_op0.Value + op.Value, op.Op, op.Me, op.Ts, "OPS"}
-		kv.filePut(key2shard(state_op.Key), state_op.Key, kv.encState(state_op))
-		state_log := State{op.Key, op.Value, op.Op, op.Me, op.Ts, "LOG"}
-		kv.filePut(key2shard(state_log.Key), state_log.Me + state_log.Op, kv.encState(state_log))
+		state_op := Op{Key:op.Key, Value:op.Value, Op:op.Op, Me:op.Me, Ts:op.Ts, Type:"OPS"}
+		kv.filePut(key2shard(state_op.Key), state_op.Key, kv.encOp(state_op))
+		state_log := Op{Key:op.Key, Value:op.Value, Op:op.Op, Me:op.Me, Ts:op.Ts, Type:"LOG"}
+		kv.filePut(key2shard(state_log.Key), state_log.Me + state_log.Op, kv.encOp(state_log))
+		//fmt.Println("Put Write:", op)
+		//fmt.Println("Log Put Write:", state_log)
+	} else if (op.Op == "Append") {
+		content2, err2 := kv.fileGet(key2shard(op.Key), op.Me+op.Op)
+		if (err2 == nil) {
+			log_state := kv.decOp(content2)
+			//fmt.Println("log_state:",log_state)
+			ts_log := log_state.Ts
+			if (ts_log >= op.Ts) {
+				return
+			}
+		} else {
+			//return
+		}
+		content, err := kv.fileGet(key2shard(op.Key), op.Key)
+		state_op0 := kv.decOp(content)
+		if (err != nil) {
+			state_op0.Value = ""
+		}		
+		state_op := Op{Key:op.Key, Value:state_op0.Value + op.Value, Op:op.Op, Me:op.Me, Ts:op.Ts, Type:"OPS"}
+		kv.filePut(key2shard(state_op.Key), state_op.Key, kv.encOp(state_op))
+		state_log := Op{Key:op.Key, Value:op.Value, Op:op.Op, Me:op.Me, Ts:op.Ts, Type:"LOG"}
+		kv.filePut(key2shard(state_log.Key), state_log.Me + state_log.Op, kv.encOp(state_log))
+		// fmt.Println("Append Write:", op)
+		// fmt.Println("Log Append Write:", state_log)
 	} else if (op.Op == "Reconfig") {
 		for _, v := range op.Database {
-			state_op := kv.decState(v)
+			state_op := kv.decOp(v)
 			kv.filePut(key2shard(state_op.Key), state_op.Key, v)
+			//fmt.Println("Reconfig Write:", op)
 		}
 		for _, v := range op.Logstime {
-			state_log := kv.decState(v)
-			content, err := kv.fileGet(key2shard(state_log.Key), state_log.Key)
+			state_log := kv.decOp(v)
+			content, err := kv.fileGet(key2shard(state_log.Key), state_log.Me + state_log.Op)
 			if (err == nil) {
-				state := kv.decState(content)
+				state := kv.decOp(content)
 				if (state.Ts < state_log.Ts) {
 					kv.filePut(key2shard(state_log.Key), state_log.Me + state_log.Op, v)
+					//fmt.Println("Log Reconfig Write:", state_log)
 				}
 			} else {
 				kv.filePut(key2shard(state_log.Key), state_log.Me + state_log.Op, v)		
+				//fmt.Println("Log Reconfig Write:", state_log)
 			}
 		}
 		kv.config = op.Config
@@ -379,7 +417,7 @@ func (kv *DisKV) GetShardDatabase(args *GetShardDatabaseArgs, reply *GetShardDat
 	dbs := map[string]string{}
 	lgs := map[string]string{}
 	for k, v := range m {
-		state := kv.decState(v)
+		state := kv.decOp(v)
 		if state.Type == "OPS" {
 			dbs[k] = v
 		} else if state.Type == "LOG" {
@@ -430,6 +468,9 @@ func (kv *DisKV) tick() {
 							}
 	 					}
 	 					label = true
+	 					if label {
+	 						break
+	 					}
 	 				}
 				}
 				if (label == false && gid_old > 0) {
@@ -438,7 +479,7 @@ func (kv *DisKV) tick() {
 			}
 		}
 		ts := strconv.FormatInt(time.Now().UnixNano(), 10)
-		proposal := Op{"", "", "Reconfig", kv.Me, ts, ind, database_newpart, cfg, logstime_newpart}
+		proposal := Op{"", "", "Reconfig", kv.Me, ts, ind, database_newpart, cfg, logstime_newpart, "PROS"}
 		kv.UpdateDB(proposal)
 	}
 }
@@ -505,7 +546,7 @@ func StartServer(gid int64, shardmasters []string,
 	kv.px = paxos.Make(servers, me, rpcs)
 
 	// log.SetOutput(os.Stdout)
-
+	kv.RestoreOps()
 
 
 	os.Remove(servers[me])
