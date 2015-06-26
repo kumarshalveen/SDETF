@@ -218,11 +218,13 @@ func (kv *DisKV) Get(args *GetArgs, reply *GetReply) error {
 	shard := key2shard(args.Key)
 	if (kv.config.Shards[shard] != kv.gid) {
 		reply.Err = ErrWrongGroup
+		fmt.Println("Debug:",ErrWrongGroup)
 		return nil
 	}
 	content, err := kv.fileGet(key2shard(args.Key), args.Key)
 	if (err != nil) {
 		reply.Err = ErrNoKey
+		fmt.Println("Debug:",ErrNoKey, content)
 	} else {
 		state := kv.decState(content)
 		if (state.Type == "OPS") {
@@ -283,7 +285,7 @@ func (kv *DisKV) UpdateDB(op Op) {
 					return
 				}
 			} else {
-				return
+				//return
 			}
 			shard := key2shard(op.Key)
 			if (kv.config.Shards[shard] != kv.gid) {
@@ -326,7 +328,7 @@ func (kv *DisKV) ProcOperation(op Op) {
 	} else if (op.Op == "Append") {
 		content, err := kv.fileGet(key2shard(op.Key), op.Key)
 		if (err != nil) {
-			return
+			//return
 		}
 		state_op0 := kv.decState(content)
 		state_op := State{op.Key, state_op0.Value + op.Value, op.Op, op.Me, op.Ts, "OPS"}
