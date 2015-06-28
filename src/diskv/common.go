@@ -77,3 +77,24 @@ type CheckDiskDataArgs struct {
 type CheckDiskDataReply struct {
 	Err      Err
 }
+
+//Lab5
+type GetInitDatabaseArgs struct {
+	Me       string
+}
+
+//Lab5
+type  GetInitDatabaseReply struct {
+	Err      Err                // error info
+	Database map[string]string  // the dataabse
+	Logstime map[string]string
+	
+}
+
+//Lab5
+type PingArgs struct {
+}
+//Lab5
+type PingReply struct {
+	Err    Err
+}
