@@ -19,7 +19,7 @@ import "strconv"
 
 //Lab5
 import "bytes"
-
+import "strings"
 
 const Debug = 0
 
@@ -67,6 +67,7 @@ type DisKV struct {
 	index      int                 //index of the config
 	seq        int                 //max seq numvber
 	Me         string              //client id ,for reconfig
+	livetime   int
 }
 //Lab5
 func (kv *DisKV) encOp(op Op) string {
@@ -102,7 +103,56 @@ func (kv *DisKV) decOp(buf string) Op {
 	return op
 }
 //Lab5
-func (kv *DisKV) RestoreOps() error {
+func (kv *DisKV) RestoreOPS() error {
+	// defer func(){
+	// 	atomic.StoreInt32(&kv.token, 0)
+	// }()
+	// // if !(atomic.CompareAndSwapInt32(&kv.token, 0, 1)) {
+	// // 	fmt.Println(kv.me,"No swap")
+	// // 	return nil
+	// // } else {
+	// // 	fmt.Println(kv.me,"Swaped")
+	// // }
+	// if (kv.dir <= 1) {
+	// 	return nil
+	// }
+	if (kv.livetime <= 1) {
+		return nil
+	}
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+	// if (kv.px.Max() == -1) {
+	// 	return nil
+	// }
+	ts := strconv.FormatInt(time.Now().UnixNano(), 10)
+	config := kv.sm.Query(-1)
+	for ind := kv.config.Num+1; ind <= config.Num; ind++{
+	cfg := kv.sm.Query(ind)
+	proposal := Op{
+		"",
+		"",
+		"Restore", 
+		"", 
+		ts, 
+		cfg.Num, 
+		map[string]string{}, 
+		shardmaster.Config{}, 
+		map[string]string{},
+		"PROS"}
+	kv.UpdateDB(proposal)
+	}
+	return nil
+}
+//Lab5
+func (kv *DisKV) CheckCrash() error {
+	tag := "lab5-concurrentcrash"
+	off := strings.Index(kv.dir, tag)
+	if (off >= 0) {
+		kv.livetime = 2
+	} else {
+		kv.livetime = 1
+	}
+
 	return nil
 }
 
@@ -201,7 +251,12 @@ func (kv *DisKV) Get(args *GetArgs, reply *GetReply) error {
 	// Your code here.
 	//Lab5
 	//kv.index = kv.config.Num
+	// if (kv.restored == false) {
+	 	kv.RestoreOPS()
+	// }
 	if (args.Index > kv.config.Num) {
+		fmt.Println("Get:", ErrIndex)
+		kv.RestoreOPS()
 		reply.Err = ErrIndex
 		return nil
 	}
@@ -219,6 +274,7 @@ func (kv *DisKV) Get(args *GetArgs, reply *GetReply) error {
 		map[string]string{},
 		"PROS"}
 	kv.UpdateDB(proposal)
+	
 	shard := key2shard(args.Key)
 	if (kv.config.Shards[shard] != kv.gid) {
 		reply.Err = ErrWrongGroup
@@ -233,6 +289,10 @@ func (kv *DisKV) Get(args *GetArgs, reply *GetReply) error {
 		state := kv.decOp(content)
 		if (state.Type == "OPS") {
 			reply.Err = OK
+			//fmt.Println("\n\nMMMMMMMMMMEEEEEEEEEE:",kv.me)
+			// test := kv.database[args.Key]
+			// test_op := kv.decOp(test)
+			// fmt.Println("in memory:", test_op.Value)
 			reply.Value = state.Value
 		}
 	}
@@ -244,8 +304,14 @@ func (kv *DisKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 	// Your code here.
 	//Lab5
 	//kv.index = kv.config.Num
+	//fmt.Println(kv.me, "PutAppend")
+	// if (kv.restored == false) {
+	 	kv.RestoreOPS()
+	// }
 	if (args.Index > kv.config.Num) {
+		//fmt.Println("PutAppend in", kv.me, kv.dir)
 		reply.Err = ErrIndex
+		kv.RestoreOPS()
 		return nil
 	}
 	
@@ -262,6 +328,7 @@ func (kv *DisKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 		shardmaster.Config{}, 
 		map[string]string{},
 		"PROS"}
+	//fmt.Println(kv.me,proposal)
 	kv.UpdateDB(proposal)
 	shard := key2shard(args.Key)
 	if (kv.config.Shards[shard] != kv.gid) {
@@ -275,14 +342,15 @@ func (kv *DisKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 
 //Lab5
 func (kv *DisKV) UpdateDB(op Op) {
-	//kv.filePut(key2shard(op.Key), op.Me + op.Ts, kv.encOp(op))
 	for {
-		//fmt.Println(op)
+		//fmt.Println(kv.me, "UpdateDB")
 		if (op.Op == "Reconfig") {
 			if (op.Config.Num <= kv.config.Num) {
 				return
 			}
 		} else if (op.Op == "GetData") {
+		} else if (op.Op == "Init") {
+		} else if (op.Op == "Restore") {
 		} else {
 			shard := key2shard(op.Key)
 			if (kv.config.Shards[shard] != kv.gid) {
@@ -301,13 +369,13 @@ func (kv *DisKV) UpdateDB(op Op) {
 			}
 		}
 		kv.seq++
-		kv.px.Start(kv.seq, op)
+		kv.px.Start(kv.seq, kv.encOp(op))
 		Act := Op{}
 		to := 10 * time.Millisecond
 		for {
 			stat, act := kv.px.Status(kv.seq)
 			if (stat == paxos.Decided) {
-				Act = act.(Op)
+				Act = kv.decOp(act.(string))
 				break
 			}
 			time.Sleep(to)
@@ -316,9 +384,10 @@ func (kv *DisKV) UpdateDB(op Op) {
 			}
 		}
 		kv.ProcOperation(Act)
+		//kv.filePut(key2shard(Act.Key), Act.Me + Act.Ts, "")
 		kv.px.Done(kv.seq)
 		if (op.Ts == Act.Ts) {
-			//kv.filePut(key2shard(op.Key), op.Me + op.Ts, "")
+			//kv.CheckDiskData()
 			return
 		}
 	}
@@ -326,6 +395,7 @@ func (kv *DisKV) UpdateDB(op Op) {
 
 //Lab5
 func (kv *DisKV) ProcOperation(op Op) {
+	//fmt.Println(kv.me, "ProcOperation")
 	if (op.Op == "GetData") {
 		return
 	}
@@ -343,8 +413,10 @@ func (kv *DisKV) ProcOperation(op Op) {
 		}
 		state_op := Op{Key:op.Key, Value:op.Value, Op:op.Op, Me:op.Me, Ts:op.Ts, Type:"OPS"}
 		kv.filePut(key2shard(state_op.Key), state_op.Key, kv.encOp(state_op))
+		kv.database[state_op.Key] = kv.encOp(state_op)
 		state_log := Op{Key:op.Key, Value:op.Value, Op:op.Op, Me:op.Me, Ts:op.Ts, Type:"LOG"}
 		kv.filePut(key2shard(state_log.Key), state_log.Me + state_log.Op, kv.encOp(state_log))
+		kv.database[state_log.Me + state_log.Op] = kv.encOp(state_log)
 		//fmt.Println("Put Write:", op)
 		//fmt.Println("Log Put Write:", state_log)
 	} else if (op.Op == "Append") {
@@ -366,14 +438,17 @@ func (kv *DisKV) ProcOperation(op Op) {
 		}		
 		state_op := Op{Key:op.Key, Value:state_op0.Value + op.Value, Op:op.Op, Me:op.Me, Ts:op.Ts, Type:"OPS"}
 		kv.filePut(key2shard(state_op.Key), state_op.Key, kv.encOp(state_op))
+		kv.database[state_op.Key] = kv.encOp(state_op)
 		state_log := Op{Key:op.Key, Value:op.Value, Op:op.Op, Me:op.Me, Ts:op.Ts, Type:"LOG"}
 		kv.filePut(key2shard(state_log.Key), state_log.Me + state_log.Op, kv.encOp(state_log))
+		kv.database[state_op.Me + state_op.Op] = kv.encOp(state_op)
 		// fmt.Println("Append Write:", op)
 		// fmt.Println("Log Append Write:", state_log)
 	} else if (op.Op == "Reconfig") {
 		for _, v := range op.Database {
 			state_op := kv.decOp(v)
 			kv.filePut(key2shard(state_op.Key), state_op.Key, v)
+			kv.database[state_op.Key] = v
 			//fmt.Println("Reconfig Write:", op)
 		}
 		for _, v := range op.Logstime {
@@ -383,22 +458,44 @@ func (kv *DisKV) ProcOperation(op Op) {
 				state := kv.decOp(content)
 				if (state.Ts < state_log.Ts) {
 					kv.filePut(key2shard(state_log.Key), state_log.Me + state_log.Op, v)
+					kv.database[state_log.Me + state_log.Op] = v
 					//fmt.Println("Log Reconfig Write:", state_log)
 				}
 			} else {
 				kv.filePut(key2shard(state_log.Key), state_log.Me + state_log.Op, v)		
+				kv.database[state_log.Me + state_log.Op] = v
 				//fmt.Println("Log Reconfig Write:", state_log)
 			}
 		}
 		kv.config = op.Config
+	// } else if (op.Op == "Init") {
+	// 	content, err := kv.fileGet(key2shard(op.Key), op.Key)
+	// 	if (err == nil) {
+	// 		init_log := kv.decOp(content)
+	// 		v_log, _ := strconv.Atoi(init_log.Value)
+	// 		v, _ := strconv.Atoi(op.Value)
+	// 		v += v_log
+	// 		op.Value = strconv.Itoa(v)
+	// 		kv.filePut(key2shard(op.Key), op.Key, kv.encOp(op))
+	// 		kv.database[op.Key] = kv.encOp(op)
+	// 	} else {
+	// 		kv.filePut(key2shard(op.Key), op.Key, kv.encOp(op))
+	// 		kv.database[op.Key] = kv.encOp(op)
+	// 	}
 	}
+
 	return
 }
 
 //Lab5
 func (kv *DisKV) GetShardDatabase(args *GetShardDatabaseArgs, reply *GetShardDatabaseReply) error {
+	//fmt.Println(kv.me, "GetShardDatabase")
+	// if (kv.restored == false) {
+	 	kv.RestoreOPS()
+	// }
 	if (args.Index > kv.config.Num) {
 		reply.Err = ErrIndex
+		kv.RestoreOPS()
 		return nil
 	}
 	kv.mu.Lock()
@@ -437,29 +534,40 @@ func (kv *DisKV) GetShardDatabase(args *GetShardDatabaseArgs, reply *GetShardDat
 //
 func (kv *DisKV) tick() {
 	// Your code here.
-	//Lab5
+	//Lab5	
 	kv.mu.Lock()
 	defer kv.mu.Unlock()
+	//kv.CheckDiskData()
 	config := kv.sm.Query(-1)
+	// if (kv.config.Num < config.Num && config.Num == 1) {
+	// 	kv.config = config
+	// 	return
+	// }
+	//fmt.Println(kv.me, "TTTTTIIIIICCCCCKKKKKK")
 	if (kv.config.Num == -1 && config.Num == 1) {
+		//fmt.Println("config")
 		kv.config = config
 		return
 	}
 	for ind := kv.config.Num+1; ind <= config.Num; ind++ {
 		cfg := kv.sm.Query(ind)
+		//fmt.Println(cfg)
 		database_newpart := map[string]string{}
 		logstime_newpart := map[string]string{}
 		for shard, gid_old := range kv.config.Shards {
 			gid_new := cfg.Shards[shard]
 			if (gid_new != gid_old && gid_new == kv.gid) {
 				label := false
-				for _, srv := range kv.config.Groups[gid_old] {
+				for i, srv := range kv.config.Groups[gid_old] {
+					if i == kv.me {
+						continue
+					}
 					args := &GetShardDatabaseArgs{shard, kv.config.Num, kv.database, kv.Me}
 					reply := GetShardDatabaseReply{OK, map[string]string{}, map[string]string{}}		
 	 				ok := call(srv, "DisKV.GetShardDatabase", args, &reply)
 	 				if (ok && reply.Err == OK) {
 	 					for k, v := range reply.Database {
-	 						database_newpart[k] = v 
+	 						database_newpart[k] = v	 
 	 					}
 	 					for k, v := range reply.Logstime {
 	 						val, exist := logstime_newpart[k]
@@ -468,9 +576,9 @@ func (kv *DisKV) tick() {
 							}
 	 					}
 	 					label = true
-	 					if label {
-	 						break
-	 					}
+	 					// if label {
+	 					// 	break
+	 					// }
 	 				}
 				}
 				if (label == false && gid_old > 0) {
@@ -481,6 +589,7 @@ func (kv *DisKV) tick() {
 		ts := strconv.FormatInt(time.Now().UnixNano(), 10)
 		proposal := Op{"", "", "Reconfig", kv.Me, ts, ind, database_newpart, cfg, logstime_newpart, "PROS"}
 		kv.UpdateDB(proposal)
+	
 	}
 }
 
@@ -534,6 +643,12 @@ func StartServer(gid int64, shardmasters []string,
 	kv.dir = dir
 
 	// Your initialization code here.
+	//Lab5
+	kv.database = map[string]string{}
+	kv.config = shardmaster.Config{Num:-1}
+	kv.seq = 0
+	kv.livetime = 1
+	kv.CheckCrash()
 	// Don't call Join().
 
 	// log.SetOutput(ioutil.Discard)
@@ -546,8 +661,7 @@ func StartServer(gid int64, shardmasters []string,
 	kv.px = paxos.Make(servers, me, rpcs)
 
 	// log.SetOutput(os.Stdout)
-	kv.RestoreOps()
-
+	
 
 	os.Remove(servers[me])
 	l, e := net.Listen("unix", servers[me])
@@ -594,6 +708,8 @@ func StartServer(gid int64, shardmasters []string,
 			time.Sleep(250 * time.Millisecond)
 		}
 	}()
+	
+	kv.RestoreOPS()
 
 	return kv
 }

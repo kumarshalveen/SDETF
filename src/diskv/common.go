@@ -68,3 +68,12 @@ type  GetShardDatabaseReply struct {
 	Logstime map[string]string
 	
 }
+
+//Lab5
+type CheckDiskDataArgs struct {
+
+}
+
+type CheckDiskDataReply struct {
+	Err      Err
+}
