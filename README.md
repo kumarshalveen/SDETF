@@ -41,3 +41,14 @@ Part A
 cd src/shardmaster
 export GOPATH=$(pwd)/../../
 go test
+
+Part B
+cd src/shardkv
+export GOPATH=$(pwd)/../../
+go test
+
+
+Lab5
+cd src/diskv
+export GOPATH=$(pwd)/../../
+go test
