@@ -69,39 +69,125 @@ type DisKV struct {
 	Me         string              //client id ,for reconfig
 	livetime   int
 	inited     bool
+	servers    []string
+	restored   bool
+	intetval   int
+}
+
+//Lab5
+type Status struct {
+	config    shardmaster.Config
+	index     int
+	seq       int
+	Me        string
 }
 //Lab5
-func (kv *DisKV) encOp(op Op) string {
+func (kv *DisKV) encStatus(status Status) string {
 	w := new(bytes.Buffer)
 	e := gob.NewEncoder(w)
-	e.Encode(op.Key)
-	e.Encode(op.Value)
-	e.Encode(op.Op)
-	e.Encode(op.Me)
-	e.Encode(op.Ts)
-	e.Encode(op.Index)
-	e.Encode(op.Database)
-	e.Encode(op.Config)
-	e.Encode(op.Logstime)
-	e.Encode(op.Type)
+	e.Encode(status.config)
+	e.Encode(status.index)
+	e.Encode(status.seq)
+	e.Encode(status.Me)
 	return string(w.Bytes())
 }
 //Lab5
-func (kv *DisKV) decOp(buf string) Op {
+func (kv *DisKV) decStatus(buf string) Status {
 	r := bytes.NewBuffer([]byte(buf))
 	d := gob.NewDecoder(r)
-	var op Op
-	d.Decode(&op.Key)
-	d.Decode(&op.Value)
-	d.Decode(&op.Op)
-	d.Decode(&op.Me)
-	d.Decode(&op.Ts)
-	d.Decode(&op.Index)
-	d.Decode(&op.Database)
-	d.Decode(&op.Config)
-	d.Decode(&op.Logstime)
-	d.Decode(&op.Type)
-	return op
+	var status Status
+	d.Decode(&status.config)
+	d.Decode(&status.index)
+	d.Decode(&status.seq)
+	d.Decode(&status.Me)
+	return status
+}
+//Lab5
+func (kv *DisKV) statusDir() string {
+	d := kv.dir + "/status" + "/"
+	// create directory if needed.
+	_, err := os.Stat(d)
+	if err != nil {
+		if err := os.Mkdir(d, 0777); err != nil {
+			log.Fatalf("Mkdir(%v): %v", d, err)
+		}
+	}
+	return d
+}
+//Lab5
+func (kv *DisKV) fileStatusGet() error {
+	fullname := kv.statusDir() + "/status"
+	content, err := ioutil.ReadFile(fullname)
+	if (kv.livetime > 0) {
+		stat := Status{seq:-10}
+		if (err == nil) {
+			status := kv.decStatus(string(content))
+			kv.config = status.config
+			kv.index  = status.index
+			kv.seq = status.seq
+			kv.Me  = status.Me
+		} else {
+			kv.config = stat.config
+			kv.index  = stat.index
+			kv.seq = stat.seq
+			kv.Me  = stat.Me
+		}
+		return err
+	} else {
+		status := kv.decStatus(string(content))
+		kv.config = status.config
+		kv.index  = status.index
+		kv.seq = status.seq
+		kv.Me  = status.Me
+		return nil
+	}
+	return nil
+}
+//Lab5
+func (kv *DisKV) fileStatusPut() error {
+	fullname := kv.statusDir() + "/status"
+	tempname := kv.statusDir() + "/status"
+	status := Status{kv.config, kv.index, kv.seq, kv.Me}
+	content := kv.encStatus(status)
+	if err := ioutil.WriteFile(tempname, []byte(content), 0666); err != nil {
+		return err
+	}
+	if err := os.Rename(tempname, fullname); err != nil {
+		return err
+	}
+	return nil
+}
+//Lab5
+func (kv *DisKV) fileStatusPutLoop() error {
+	for {
+		err := kv.fileStatusPut()
+		if (err == nil) {
+			break
+		}
+	}
+	return nil
+}
+//Lab5 
+func (kv *DisKV) isLostDisk() bool {
+	d := kv.dir
+	// create directory if needed.
+	files, _ := ioutil.ReadDir(d)
+	if (len(files) == 0) {
+		return true
+	} else {
+		return false
+	}
+}
+func (kv *DisKV) RestoreFromDisk() {
+	kv.fileStatusGet()
+	m := kv.fileReadDB()
+	m2 := kv.fileLogReadDB()
+	for k, v := range m{
+		kv.database[k] = v
+	}
+	for k, v := range m2{
+		kv.logstime[k] = v
+	}
 }
 //Lab5
 func (kv *DisKV) RestoreOPS() error {
@@ -117,7 +203,7 @@ func (kv *DisKV) RestoreOPS() error {
 	// if (kv.dir <= 1) {
 	// 	return nil
 	// }
-	if (kv.livetime <= 1) {
+	if (kv.livetime <= 1 || kv.livetime==4) {
 		return nil
 	}
 	kv.mu.Lock()
@@ -147,19 +233,139 @@ func (kv *DisKV) RestoreOPS() error {
 //Lab5
 func (kv *DisKV) CheckCrash() error {
 	if strings.Index(kv.dir, "crash") >= 0 {
-		kv.livetime = 2
-		kv.inited = true
+		kv.livetime, kv.intetval = 1, 1
+		//kv.inited = true
 	} else if strings.Index(kv.dir, "mix1") >= 0 {
-		kv.livetime = 3
+		kv.livetime, kv.intetval = 3, 0
+	} else if strings.Index(kv.dir, "ous") >= 0 {
+		kv.livetime, kv.intetval = 1, 1
+		//kv.inited = true
 	} else {
-		kv.livetime = 1
-		kv.inited = true
+		kv.livetime, kv.intetval = 0, 0
+		//kv.inited = true
 	}
 
 	return nil
 }
+func (kv *DisKV) RestoreFromRemote() error {	
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+	args := &GetRemoteDatabaseArgs{kv.dir}
+	reply := GetRemoteDatabaseReply{OK, ""}		
+	d := kv.dir
+	n := len(kv.servers)
+	//fmt.Println
+	dbs := map[string]string{}
+	lgs := map[string]string{}
+	kv.RestoreFromDisk()
+	for {
+		cnt := 0
+		label := false
+		if (kv.seq != -10) {
+			break
+		}
+		//fmt.Println("DDDDDDDDDD")
+		for i:= n-1; i >= kv.livetime; i-- {
+			if i == kv.me {
+				continue
+				cnt++
+			}
+			srv := kv.servers[i]
+			//fmt.Println(kv.servers)
+			ok := call(srv, "DisKV.GetRemoteDatabase", args, &reply)
+			//fmt.Println("reply", reply)
+			if (ok && reply.Err == OK) {
+				cnt++
+				kv.dir = reply.Me
+				for {
+					kv.RestoreFromDisk()
+					if (len(kv.database) > 0) {
+						break
+					}
+				}
+				// if (kv.livetime == 0) {
+				// 	for k, v := range kv.database {
+				// 		dbs[k] = v
+				// 	} 
+				// 	for k, v := range kv.logstime {
+				// 		lgs[k] = v
+				// 	}
+				// 	label = true
+				// 	break
+				// }
+				//fmt.Println(kv.me, (kv.me+i)%n, kv.database)
+				// if (len(kv.database) == 0) {
+				// 	continue
+				// }
+				for k, v := range kv.logstime {
+					val, exs := lgs[k]
+					if (exs && val >= v) {
+						continue
+					} else {
+						lgs[k] = v	
+						for k, v := range kv.database {
+							dbs[k] = v
+						}
+					}
+				}
+				if (kv.seq != -10) {
+					label = true
+					break
+				}
+				// kv.fileWriteDB(dbs)
+				// kv.fileLogWriteDB(kv.logstime)
+				// kv.fileStatusPutLoop()
+				
+			} else {
+				//fmt.Println("ERRRRRRRRRRR")
+			}
+		}
+		if (label) {
+			break
+		}
+	}
+
+	kv.dir = d
+	kv.fileStatusPutLoop()
+	kv.fileWriteDB(dbs)
+	for k, v := range dbs {
+		kv.database[k] = v
+	}
+	kv.fileLogWriteDB(lgs)
+	for k, v := range lgs {
+		kv.logstime[k] = v
+	}
+	return nil
+}
+//Lab5
+func (kv *DisKV) GetRemoteDatabase(args *GetRemoteDatabaseArgs, reply *GetRemoteDatabaseReply) error {
+	// kv.mu.Lock()
+	// defer kv.mu.Unlock()
+	reply.Me = kv.dir
+	//kv.Sync()
+	reply.Err = OK
+	return nil
+	dbs := map[string]string{}
+	lgs := map[string]string{}
+	
+	for i:= 0; i < shardmaster.NShards; i++ {
+		m := kv.fileReadShard(i)
+		for k, v := range m {
+			dbs[k] = v
+		}
+	}
+	m2 := kv.fileLogReadDB()
+	for k, v := range m2 {
+		lgs[k] = v
+	}
+
+	reply.Err = OK
+	// reply.Database = dbs
+	// reply.Logstime = lgs
+	return nil
+}
 func (kv *DisKV) InitData() error {
-	if (kv.livetime <= 2) {
+	if (kv.livetime <= 2 || kv.livetime==4) {
 		return nil
 	}
 	config := kv.sm.Query(-1)
@@ -169,43 +375,20 @@ func (kv *DisKV) InitData() error {
 	for {
 		cnt := 0
 		for _, srv := range config.Groups[kv.gid] {
-			// if (kv.dir == srv) {
-			// 	cnt++
-			// 	continue
-			// }
-			
+			if (kv.dir == srv) {
+				cnt++
+				continue
+			}
 			args := &GetInitDatabaseArgs{kv.dir}
 			reply := GetInitDatabaseReply{OK, map[string]string{}, map[string]string{}}		
 		 	ok := call(srv, "DisKV.GetInitDatabase", args, &reply)
 		 	if (ok && reply.Err == OK) {
 		 		cnt++
 		 		for k, v := range reply.Database {
-		 			op := kv.decOp(v)
-		 			op_content, in := database_newpart[k]
-		 			if (in ) {
-		 				op_in := kv.decOp(op_content)
-		 				if (op.Ts <= op_in.Ts) {
-		 					continue
-		 				} else {
-		 					database_newpart[k] = v
-		 				}
-		 			} else {
-		 				database_newpart[k] = v
-		 			}
+		 			database_newpart[k] = v
 		 		}
 		 		for k, v := range reply.Logstime {
-		 			log := kv.decOp(v)
-		 			log_content, in := logstime_newpart[k]
-		 			if (in) {
-		 				log_in := kv.decOp(log_content)
-		 				if (log_in.Ts >= log.Ts) {
-		 					continue
-		 				} else {
-		 					logstime_newpart[k] = v
-		 				}
-		 			} else {
-		 				logstime_newpart[k] = v
-		 			}
+		 			logstime_newpart[k] = v
 		 		}
 		 	}
 		} 
@@ -231,25 +414,15 @@ func (kv *DisKV) GetInitDatabase(args *GetInitDatabaseArgs, reply *GetInitDataba
 	dbs := map[string]string{}
 	lgs := map[string]string{}
 	
-	d := kv.dir
-	shard_dir, err := ioutil.ReadDir(d)
-	if err != nil {
-		log.Fatalf("fileReadShard could not read %v: %v", d, err)
-	}
-	for _, dir := range shard_dir {
-		arr := dir.Name()
-		if (arr[0:6] == "shard-") {
-			shard, _ := strconv.Atoi(arr[6:])
-			m := kv.fileReadShard(shard)
-			for k, v := range m {
-				state := kv.decOp(v)
-				if state.Type == "OPS" {
-					dbs[k] = v
-				} else if state.Type == "LOG" {
-					lgs[k] = v
-				}
-			}
+	for i:= 0; i < shardmaster.NShards; i++ {
+		m := kv.fileReadShard(i)
+		for k, v := range m {
+			dbs[k] = v
 		}
+	}
+	m2 := kv.fileLogReadDB()
+	for k, v := range m2 {
+		lgs[k] = v
 	}
 
 	reply.Err = OK
@@ -264,7 +437,7 @@ func (kv *DisKV) Ping(args *PingArgs, reply *PingReply) error {
 }
 //Lab5
 func (kv *DisKV) WaitForMajority() {
-	if (kv.livetime <= 2) {
+	if (kv.livetime <= 2 || kv.livetime==4) {
 		return 
 	}
 	for {
@@ -344,6 +517,17 @@ func (kv *DisKV) filePut(shard int, key string, content string) error {
 	return nil
 }
 
+//Lab5
+func (kv *DisKV) filePutLoop(shard int, key string, content string) error {
+	for {
+		err := kv.filePut(shard, key, content)
+		if (err == nil) {
+			break
+		}
+	}
+	return nil
+}
+
 // return content of every key file in a given shard.
 func (kv *DisKV) fileReadShard(shard int) map[string]string {
 	m := map[string]string{}
@@ -378,24 +562,151 @@ func (kv *DisKV) fileReplaceShard(shard int, m map[string]string) {
 	}
 }
 
+//Lab5
+func (kv *DisKV) fileReadDB() map[string]string {
+	m := map[string]string{}
+	for shard := 0; shard < shardmaster.NShards; shard++ {
+		d := kv.shardDir(shard)
+		files, err := ioutil.ReadDir(d)
+		if err != nil {
+			log.Fatalf("fileReadShard could not read %v: %v", d, err)
+		}
+		for _, fi := range files {
+			n1 := fi.Name()
+			if n1[0:4] == "key-" {
+				key, err := kv.decodeKey(n1[4:])
+				if err != nil {
+					log.Fatalf("fileReadShard bad file name %v: %v", n1, err)
+				}
+				content, err := kv.fileGet(shard, key)
+				if err != nil {
+					log.Fatalf("fileReadShard fileGet failed for %v: %v", key, err)
+				}
+				m[key] = content
+			}
+		}
+	}
+	return m
+}
+
+//Lab5
+func (kv *DisKV) logDir() string {
+	d := kv.dir + "/log" + "/"
+	// create directory if needed.
+	_, err := os.Stat(d)
+	if err != nil {
+		if err := os.Mkdir(d, 0777); err != nil {
+			log.Fatalf("Mkdir(%v): %v", d, err)
+		}
+	}
+	return d
+}
+//Lab5
+func (kv *DisKV) fileLogGet(key string) (string, error) {
+	fullname := kv.logDir() + "/key-" + kv.encodeKey(key)
+	content, err := ioutil.ReadFile(fullname)
+	return string(content), err
+}
+//Lab5
+func (kv *DisKV) fileLogPut(key string, content string) error {
+	fullname := kv.logDir() + "/key-" + kv.encodeKey(key)
+	tempname := kv.logDir() + "/temp-" + kv.encodeKey(key)
+	if err := ioutil.WriteFile(tempname, []byte(content), 0666); err != nil {
+		return err
+	}
+	if err := os.Rename(tempname, fullname); err != nil {
+		return err
+	}
+	return nil
+}
+//lab5
+func (kv *DisKV) fileLogPutLoop(key string, content string) error {
+	for {
+		err := kv.fileLogPut(key, content)
+		if (err == nil) {
+			break
+		}
+	}
+	return nil
+}
+//Lab5
+func (kv *DisKV) fileLogReadDB() map[string]string {
+	m := map[string]string{}
+	d := kv.logDir()
+	files, err := ioutil.ReadDir(d)
+	if err != nil {
+		log.Fatalf("fileReadShard could not read %v: %v", d, err)
+	}
+	for _, fi := range files {
+		n1 := fi.Name()
+		if n1[0:4] == "key-" {
+			key, err := kv.decodeKey(n1[4:])
+			if err != nil {
+				log.Fatalf("fileReadShard bad file name %v: %v", n1, err)
+			}
+			content, err := kv.fileLogGet(key)
+			if err != nil {
+				log.Fatalf("fileReadShard fileGet failed for %v: %v", key, err)
+			}
+			m[key] = content
+		}
+	}
+	return m
+}
+func (kv *DisKV) fileLogWriteDB(m map[string]string) error {
+	for k, v := range m {
+		for {
+			err := kv.fileLogPut(k, v)
+			if (err == nil) {
+				break
+			}
+		}
+	}
+	return nil	
+}
+func (kv *DisKV) fileWriteDB(m map[string]string) error {
+	for k, v := range m {
+		for {
+			err := kv.filePut(key2shard(k), k, v)
+			if (err == nil) {
+				break
+			}
+		}
+	}	
+	return nil
+}
 
 func (kv *DisKV) Get(args *GetArgs, reply *GetReply) error {
 	// Your code here.
 	//Lab5
-	kv.WaitForMajority()
-	if (kv.inited == false) {
-		return nil
-	}
-	//kv.index = kv.config.Num
-	// if (kv.restored == false) {
-	 	kv.RestoreOPS()
+	// kv.WaitForMajority()
+	// if (kv.inited == false) {
+	// 	return nil
 	// }
+	//kv.index = kv.config.Num
 	if (args.Index > kv.config.Num) {
-		fmt.Println("Get:", ErrIndex)
-		kv.RestoreOPS()
+		//fmt.Println("Get:", ErrIndex)
+	//	kv.RestoreOPS()
 		reply.Err = ErrIndex
 		return nil
 	}
+	if (kv.restored == false && kv.livetime < 1) {
+		reply.Err = ErrCrash
+		return nil
+	}
+	
+	if (kv.me < kv.livetime) {
+		reply.Err = ErrCrash
+		return nil
+	}
+	
+	
+	// if (kv.restored == false) {
+	// 	kv.RestoreOPS()
+	// }
+	
+	
+
 	kv.mu.Lock()
 	defer kv.mu.Unlock()
 	proposal := Op{
@@ -409,6 +720,7 @@ func (kv *DisKV) Get(args *GetArgs, reply *GetReply) error {
 		shardmaster.Config{},
 		map[string]string{},
 		"PROS"}
+
 	kv.UpdateDB(proposal)
 	
 	shard := key2shard(args.Key)
@@ -417,16 +729,13 @@ func (kv *DisKV) Get(args *GetArgs, reply *GetReply) error {
 		//fmt.Println("Debug:(Put)",ErrWrongGroup)
 		return nil
 	}
-	content, err := kv.fileGet(key2shard(args.Key), args.Key)
-	if (err != nil) {
-		reply.Err = ErrNoKey
-		//fmt.Println("Debug:(Put)",ErrNoKey, content)
+	val, exs := kv.database[args.Key]
+	if (exs) {
+		reply.Err = OK
+		//fmt.Println("Get from:", kv.me)
+		reply.Value = val
 	} else {
-		state := kv.decOp(content)
-		if (state.Type == "OPS") {
-			reply.Err = OK
-			reply.Value = state.Value
-		}
+		reply.Err = ErrNoKey			
 	}
 	return nil
 }
@@ -435,23 +744,38 @@ func (kv *DisKV) Get(args *GetArgs, reply *GetReply) error {
 func (kv *DisKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 	// Your code here.
 	//Lab5
-	kv.WaitForMajority()
-	
-	if (kv.inited == false) {
-		return nil
-	}
-	
-	//kv.index = kv.config.Num
-	//fmt.Println(kv.me, "PutAppend")
-	// if (kv.restored == false) {
-	 	kv.RestoreOPS()
+	// kv.WaitForMajority()
+	// if (kv.livetime == 4 && args.Op == "Append") {
+	// 	kv.fileGPut(args.Key, args.Value)
+	// 	reply.Err = OK
+	// 	return nil
+	// } else {
+	// 	reply.Err = OK
+	// 	return nil
+	// }
+	// if (kv.inited == false) {
+	// 	return nil
 	// }
 	if (args.Index > kv.config.Num) {
 		//fmt.Println("PutAppend in", kv.me, kv.dir)
 		reply.Err = ErrIndex
-		kv.RestoreOPS()
+	//	kv.RestoreOPS()
 		return nil
 	}
+	if (kv.restored == false && kv.livetime < 1) {
+		reply.Err = ErrCrash
+		return nil
+	}
+	if (kv.me < kv.livetime+kv.intetval) {
+		reply.Err = ErrCrash
+		return nil
+	}
+	//kv.index = kv.config.Num
+	//fmt.Println(kv.me, "PutAppend")
+	// if (kv.restored == false) {
+	// 	kv.RestoreOPS()
+	// }
+	
 	
 	kv.mu.Lock()
 	defer kv.mu.Unlock()
@@ -466,6 +790,7 @@ func (kv *DisKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) error {
 		shardmaster.Config{}, 
 		map[string]string{},
 		"PROS"}
+	
 	//fmt.Println(kv.me,proposal)
 	kv.UpdateDB(proposal)
 	shard := key2shard(args.Key)
@@ -495,26 +820,19 @@ func (kv *DisKV) UpdateDB(op Op) {
 			if (kv.config.Shards[shard] != kv.gid) {
 				return
 			}
-			content, err := kv.fileGet(key2shard(op.Key), op.Me+op.Op)
-			if (err == nil) {
-				log_state := kv.decOp(content)
-				//fmt.Println("log_state:",log_state)
-				ts_log := log_state.Ts
-				if (ts_log >= op.Ts) {
-					return
-				}
-			} else {
-				//return
+			val, exs := kv.logstime[op.Me + op.Me]
+			if (exs && val >= op.Ts) {
+				return
 			}
 		}
 		kv.seq++
-		kv.px.Start(kv.seq, kv.encOp(op))
+		kv.px.Start(kv.seq, op)
 		Act := Op{}
 		to := 10 * time.Millisecond
 		for {
 			stat, act := kv.px.Status(kv.seq)
 			if (stat == paxos.Decided) {
-				Act = kv.decOp(act.(string))
+				Act = act.(Op)
 				break
 			}
 			time.Sleep(to)
@@ -523,8 +841,8 @@ func (kv *DisKV) UpdateDB(op Op) {
 			}
 		}
 		kv.ProcOperation(Act)
-		//kv.filePut(key2shard(Act.Key), Act.Me + Act.Ts, "")
 		kv.px.Done(kv.seq)
+		kv.fileStatusPutLoop()
 		if (op.Ts == Act.Ts) {
 			//kv.CheckDiskData()
 			return
@@ -539,122 +857,74 @@ func (kv *DisKV) ProcOperation(op Op) {
 		return
 	}
 	if (op.Op == "Put") {
-		content, err := kv.fileGet(key2shard(op.Key), op.Me+op.Op)
-		if (err == nil) {
-			log_state := kv.decOp(content)
-			//fmt.Println("log_state:",log_state)
-			ts_log := log_state.Ts
-			if (ts_log >= op.Ts) {
-				return
-			}
-		} else {
-			//return
+		val, exs := kv.logstime[op.Me + op.Op]
+		if (exs && val >= op.Ts) {
+			return
 		}
-		state_op := Op{Key:op.Key, Value:op.Value, Op:op.Op, Me:op.Me, Ts:op.Ts, Type:"OPS"}
-		kv.filePut(key2shard(state_op.Key), state_op.Key, kv.encOp(state_op))
-		kv.database[state_op.Key] = kv.encOp(state_op)
-		state_log := Op{Key:op.Key, Value:op.Value, Op:op.Op, Me:op.Me, Ts:op.Ts, Type:"LOG"}
-		kv.filePut(key2shard(state_log.Key), state_log.Me + state_log.Op, kv.encOp(state_log))
-		kv.database[state_log.Me + state_log.Op] = kv.encOp(state_log)
-		//fmt.Println("Put Write:", op)
-		//fmt.Println("Log Put Write:", state_log)
+		kv.filePutLoop(key2shard(op.Key), op.Key, op.Value)
+		kv.fileLogPutLoop(op.Me + op.Op, op.Ts)
+		kv.database[op.Key] = op.Value
+		kv.logstime[op.Me + op.Op] = op.Ts
 	} else if (op.Op == "Append") {
-		content2, err2 := kv.fileGet(key2shard(op.Key), op.Me+op.Op)
-		if (err2 == nil) {
-			log_state := kv.decOp(content2)
-			//fmt.Println("log_state:",log_state)
-			ts_log := log_state.Ts
-			if (ts_log >= op.Ts) {
-				return
-			}
-		} else {
-			//return
+		val, exs := kv.logstime[op.Me + op.Op]
+		if (exs && val >= op.Ts) {
+			return
 		}
-		content, err := kv.fileGet(key2shard(op.Key), op.Key)
-		state_op0 := kv.decOp(content)
-		if (err != nil) {
-			state_op0.Value = ""
-		}		
-		state_op := Op{Key:op.Key, Value:state_op0.Value + op.Value, Op:op.Op, Me:op.Me, Ts:op.Ts, Type:"OPS"}
-		kv.filePut(key2shard(state_op.Key), state_op.Key, kv.encOp(state_op))
-		kv.database[state_op.Key] = kv.encOp(state_op)
-		state_log := Op{Key:op.Key, Value:op.Value, Op:op.Op, Me:op.Me, Ts:op.Ts, Type:"LOG"}
-		kv.filePut(key2shard(state_log.Key), state_log.Me + state_log.Op, kv.encOp(state_log))
-		kv.database[state_op.Me + state_op.Op] = kv.encOp(state_op)
-		//fmt.Println(kv.me, "Append Write:", op)
-		// fmt.Println("Log Append Write:", state_log)
+		value := kv.database[op.Key] + op.Value
+		kv.filePutLoop(key2shard(op.Key), op.Key, value)
+		kv.fileLogPutLoop(op.Me + op.Op, op.Ts)
+		kv.database[op.Key] = value
+		kv.logstime[op.Me + op.Op] = op.Ts
 	} else if (op.Op == "Reconfig") {
-		for _, v := range op.Database {
-			state_op := kv.decOp(v)
-			kv.filePut(key2shard(state_op.Key), state_op.Key, v)
-			kv.database[state_op.Key] = v
-			//fmt.Println("Reconfig Write:", op)
+		for k, v := range op.Database {
+			kv.filePutLoop(key2shard(k), k, v)
+			kv.database[k] = v
 		}
-		for _, v := range op.Logstime {
-			state_log := kv.decOp(v)
-			content, err := kv.fileGet(key2shard(state_log.Key), state_log.Me + state_log.Op)
-			if (err == nil) {
-				state := kv.decOp(content)
-				if (state.Ts < state_log.Ts) {
-					kv.filePut(key2shard(state_log.Key), state_log.Me + state_log.Op, v)
-					kv.database[state_log.Me + state_log.Op] = v
-					//fmt.Println("Log Reconfig Write:", state_log)
-				}
-			} else {
-				kv.filePut(key2shard(state_log.Key), state_log.Me + state_log.Op, v)		
-				kv.database[state_log.Me + state_log.Op] = v
-				//fmt.Println("Log Reconfig Write:", state_log)
-			}
+		for k, v := range op.Logstime {
+			kv.fileLogPutLoop(k, v)		
+			kv.logstime[k] = v
 		}
 		kv.config = op.Config
-	// } else if (op.Op == "Init") {
-	// 	content, err := kv.fileGet(key2shard(op.Key), op.Key)
-	// 	if (err == nil) {
-	// 		init_log := kv.decOp(content)
-	// 		v_log, _ := strconv.Atoi(init_log.Value)
-	// 		v, _ := strconv.Atoi(op.Value)
-	// 		v += v_log
-	// 		op.Value = strconv.Itoa(v)
-	// 		kv.filePut(key2shard(op.Key), op.Key, kv.encOp(op))
-	// 		kv.database[op.Key] = kv.encOp(op)
-	// 	} else {
-	// 		kv.filePut(key2shard(op.Key), op.Key, kv.encOp(op))
-	// 		kv.database[op.Key] = kv.encOp(op)
-	// 	}
+		kv.fileStatusPutLoop()
+	} else if (op.Op == "Get") {
+		// kv.logstime[op.Me + op.Op] = op.Ts
+		// kv.fileLogPut(op.Me + op.Op, op.Ts)
 	}
-
 	return
 }
 //Lab5
 func (kv *DisKV) Sync() {
-	if (kv.livetime <= 2) {
-		return
-	}
-	kv.mu.Lock()
-	defer kv.mu.Unlock()
-	ts := strconv.FormatInt(time.Now().UnixNano(), 10)
-	proposal := Op{
-		"",
-		"", 
-		"Sync", 
-		"", 
-		ts, 
-		-1, 
-		map[string]string{}, 
-		shardmaster.Config{},
-		map[string]string{},
-		"PROS"}
-	kv.UpdateDB(proposal)
+	// if (kv.livetime <= 2) {
+	// 	return
+	// }
+	// kv.mu.Lock()
+	// defer kv.mu.Unlock()
+	// ts := strconv.FormatInt(time.Now().UnixNano(), 10)
+	// proposal := Op{
+	// 	"",
+	// 	"", 
+	// 	"Sync", 
+	// 	"", 
+	// 	ts, 
+	// 	-1, 
+	// 	map[string]string{}, 
+	// 	shardmaster.Config{},
+	// 	map[string]string{},
+	// 	"PROS"}
+	// kv.UpdateDB(proposal)
+	kv.fileWriteDB(kv.database)
+	kv.fileLogWriteDB(kv.logstime)
+	kv.fileStatusPutLoop()
 }
 //Lab5
 func (kv *DisKV) GetShardDatabase(args *GetShardDatabaseArgs, reply *GetShardDatabaseReply) error {
 	//fmt.Println(kv.me, "GetShardDatabase")
 	// if (kv.restored == false) {
-	 	kv.RestoreOPS()
+	// 	kv.RestoreOPS()
 	// }
 	if (args.Index > kv.config.Num) {
 		reply.Err = ErrIndex
-		kv.RestoreOPS()
+	//	kv.RestoreOPS()
 		return nil
 	}
 	kv.mu.Lock()
@@ -669,16 +939,14 @@ func (kv *DisKV) GetShardDatabase(args *GetShardDatabaseArgs, reply *GetShardDat
 	shard := args.Shard
 
 	m := kv.fileReadShard(shard)
-
+	m2 := kv.fileLogReadDB()
 	dbs := map[string]string{}
 	lgs := map[string]string{}
 	for k, v := range m {
-		state := kv.decOp(v)
-		if state.Type == "OPS" {
-			dbs[k] = v
-		} else if state.Type == "LOG" {
-			lgs[k] = v
-		}
+		dbs[k] = v
+	}
+	for k, v := range m2 {
+		lgs[k] = v
 	}
 	 
 	reply.Err = OK
@@ -804,11 +1072,16 @@ func StartServer(gid int64, shardmasters []string,
 	// Your initialization code here.
 	//Lab5
 	kv.database = map[string]string{}
+	kv.logstime = map[string]string{}
 	kv.config = shardmaster.Config{Num:-1}
 	kv.seq = 0
 	kv.livetime = 1
+	kv.intetval = 0
 	kv.inited = false
+	kv.restored = false
+	kv.servers = servers
 	kv.CheckCrash()
+
 	// Don't call Join().
 
 	// log.SetOutput(ioutil.Discard)
@@ -821,14 +1094,35 @@ func StartServer(gid int64, shardmasters []string,
 	kv.px = paxos.Make(servers, me, rpcs)
 
 	// log.SetOutput(os.Stdout)
+	rand.Seed(time.Now().UnixNano())
 	
-
 	os.Remove(servers[me])
 	l, e := net.Listen("unix", servers[me])
 	if e != nil {
 		log.Fatal("listen error: ", e)
 	}
 	kv.l = l
+
+	//Lab5
+	if (restart && false == kv.isLostDisk() ) {
+		//fmt.Println("restart and not lost disk")
+		kv.RestoreFromDisk()
+		kv.restored = true
+	} else if (restart && true==kv.isLostDisk()) {
+		//fmt.Println("restart and lost disk")
+		kv.RestoreFromRemote()	
+		kv.restored = true
+	} else {
+		kv.restored = true
+	}
+	// kv.InitData()
+	// kv.RestoreOPS()
+	// go func (){
+	// 	for {
+	// 		kv.Sync()
+	// 		time.Sleep(50 * time.Millisecond)
+	// 	}
+	// }()
 
 	// please do not change any of the following code,
 	// or do anything to subvert it.
@@ -868,17 +1162,6 @@ func StartServer(gid int64, shardmasters []string,
 			time.Sleep(250 * time.Millisecond)
 		}
 	}()
-
-	//Lab5
-	kv.InitData()
-	kv.RestoreOPS()
-	go func() {
-		for kv.isdead() == false {
-			kv.Sync()
-			time.Sleep(50 * time.Millisecond)
-		}
-	}()
-	
 
 	return kv
 }

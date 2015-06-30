@@ -15,6 +15,7 @@ const (
 	ErrWrongGroup = "ErrWrongGroup"
 	//Lab5
 	ErrIndex      = "ErrIndex"
+	ErrCrash      = "ErrCrash"
 )
 
 type Err string
@@ -90,9 +91,23 @@ type  GetInitDatabaseReply struct {
 	Logstime map[string]string
 	
 }
+//Lab5
+type GetRemoteDatabaseArgs struct {
+	Me       string
+}
+
+//Lab5
+type  GetRemoteDatabaseReply struct {
+	Err      Err                // error info
+	// Database map[string]string  // the dataabse
+	// Logstime map[string]string
+	Me      string
+}
 
 //Lab5
 type PingArgs struct {
+	Key     string
+	Me      string
 }
 //Lab5
 type PingReply struct {
